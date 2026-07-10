@@ -1,5 +1,10 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
+  <ItemGroup>
+    <ProjectReference Include="PJeCalc.Core\PJeCalc.Core.csproj" />
+    <ProjectReference Include="PJeCalc.Data\PJeCalc.Data.csproj" />
+  </ItemGroup>
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
@@ -8,5 +13,20 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="PJeCalc.Core\**" />
+    <Compile Remove="PJeCalc.Data\**" />
+    <Compile Remove="PJeCalc.Tests\**" />
+    <Compile Remove="decompiled\**" />
+    <EmbeddedResource Remove="PJeCalc.Core\**" />
+    <EmbeddedResource Remove="PJeCalc.Data\**" />
+    <EmbeddedResource Remove="PJeCalc.Tests\**" />
+    <EmbeddedResource Remove="decompiled\**" />
+    <None Remove="PJeCalc.Core\**" />
+    <None Remove="PJeCalc.Data\**" />
+    <None Remove="PJeCalc.Tests\**" />
+    <None Remove="decompiled\**" />
+  </ItemGroup>
 
 </Project>

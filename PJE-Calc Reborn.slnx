@@ -1,3 +1,6 @@
 <Solution>
   <Project Path="PJE-Calc Reborn.csproj" />
+  <Project Path="PJeCalc.Core/PJeCalc.Core.csproj" />
+  <Project Path="PJeCalc.Data/PJeCalc.Data.csproj" />
+  <Project Path="PJeCalc.Tests/PJeCalc.Tests.csproj" />
 </Solution>
