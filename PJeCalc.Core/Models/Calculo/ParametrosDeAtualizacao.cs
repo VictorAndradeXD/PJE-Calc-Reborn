@@ -18,8 +18,6 @@ public class ParametrosDeAtualizacao : EntityBase
 
     public IndiceMonetarioEnum? IndiceDeCorrecaoDoFGTS { get; set; }
     public bool JurosDeFgtsComJam { get; set; }
-    public IndiceMonetarioEnum? IndiceDeCorrecaoDePrevidenciaPrivada { get; set; }
-    public JurosEnum? JurosDePrevidenciaPrivada { get; set; }
     public IndiceMonetarioEnum? IndiceDeCorrecaoDasCustas { get; set; }
     public JurosEnum? JurosDeCustas { get; set; }
 

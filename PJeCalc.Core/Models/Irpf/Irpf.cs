@@ -10,8 +10,6 @@ public class Irpf : EntityBase
     public bool ConsiderarTributacaoExclusiva { get; set; }
     public bool RegimeDeCaixa { get; set; }
     public bool DeduzirContribuicaoSocial { get; set; }
-    public bool DeduzirPrevidenciaPrivada { get; set; }
-    public bool DeduzirPensaoAlimenticia { get; set; }
     public bool AposentadoMaior65 { get; set; }
     public bool PossuiDependentes { get; set; }
     public int? QuantidadeDependentes { get; set; }

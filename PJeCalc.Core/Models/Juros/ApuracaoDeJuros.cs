@@ -9,7 +9,6 @@ public class ApuracaoDeJuros : EntityBase
     public decimal? ValorCorrigido { get; set; }
     public decimal? TaxaDeJuros { get; set; }
     public decimal? ValorVerbaParaContribuicaoSocial { get; set; }
-    public decimal? ValorVerbaParaPrevidenciaPrivada { get; set; }
     public long CalculoId { get; set; }
     public Calculo.Calculo? Calculo { get; set; }
 }

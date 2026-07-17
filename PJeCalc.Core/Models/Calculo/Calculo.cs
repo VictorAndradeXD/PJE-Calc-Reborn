@@ -12,11 +12,7 @@ using PJeCalc.Core.Models.Irpf;
 using PJeCalc.Core.Models.Juros;
 using PJeCalc.Core.Models.Multas;
 using PJeCalc.Core.Models.Pagamento;
-using PJeCalc.Core.Models.PensaoAlimenticia;
-using PJeCalc.Core.Models.PrevidenciaPrivada;
 using PJeCalc.Core.Models.Processo;
-using PJeCalc.Core.Models.SalarioFamilia;
-using PJeCalc.Core.Models.SeguroDesemprego;
 using PJeCalc.Core.Models.VerbaCalculo;
 
 namespace PJeCalc.Core.Models.Calculo;
@@ -61,10 +57,6 @@ public class Calculo : EntityBase
     public Irpf.Irpf? Irpf { get; set; }
     public CustasJudiciais? CustasJudiciais { get; set; }
     public ParametrosDeAtualizacao? ParametrosDeAtualizacao { get; set; }
-    public PensaoAlimenticia.PensaoAlimenticia? PensaoAlimenticia { get; set; }
-    public PrevidenciaPrivada.PrevidenciaPrivada? PrevidenciaPrivada { get; set; }
-    public SalarioFamilia.SalarioFamilia? SalarioFamilia { get; set; }
-    public SeguroDesemprego.SeguroDesemprego? SeguroDesemprego { get; set; }
 
     // Navigation: one-to-many
     public List<VerbaDeCalculo> Verbas { get; set; } = [];

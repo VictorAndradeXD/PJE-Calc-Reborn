@@ -54,10 +54,6 @@ public class CalculoTests
         Assert.Null(calculo.Irpf);
         Assert.Null(calculo.CustasJudiciais);
         Assert.Null(calculo.ParametrosDeAtualizacao);
-        Assert.Null(calculo.PensaoAlimenticia);
-        Assert.Null(calculo.PrevidenciaPrivada);
-        Assert.Null(calculo.SalarioFamilia);
-        Assert.Null(calculo.SeguroDesemprego);
 
         // Assert - Nullable version
         Assert.Null(calculo.Versao);

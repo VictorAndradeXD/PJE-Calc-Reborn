@@ -8,8 +8,6 @@ public class OcorrenciaDeIrpf : EntityBase
     public decimal? ValorVerbas { get; set; }
     public decimal? ValorJuros { get; set; }
     public decimal? ValorContribuicaoSocial { get; set; }
-    public decimal? ValorPrevidenciaPrivada { get; set; }
-    public decimal? ValorPensaoAlimenticia { get; set; }
     public decimal? ValorHonorarios { get; set; }
     public decimal? ValorDependentes { get; set; }
     public decimal? ValorBase { get; set; }

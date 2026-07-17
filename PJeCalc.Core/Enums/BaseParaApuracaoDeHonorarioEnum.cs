@@ -13,9 +13,6 @@ public enum BaseParaApuracaoDeHonorarioEnum
     [Description("Bruto (-) Contribuição Social")]
     BrutoMenosContribuicaoSocial,
 
-    [Description("Bruto (-) Contribuição Social (-) Previdência Privada")]
-    BrutoMenosContribuicaoSocialMenosPrevidenciaPrivada,
-
     [Description("Verbas que não compõem o Principal")]
     VerbasQueNaoCompoeOPrincipal
 }

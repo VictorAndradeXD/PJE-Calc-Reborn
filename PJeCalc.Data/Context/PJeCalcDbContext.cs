@@ -15,15 +15,10 @@ using PJeCalc.Core.Models.Irpf;
 using PJeCalc.Core.Models.Juros;
 using PJeCalc.Core.Models.Multas;
 using PJeCalc.Core.Models.Pagamento;
-using PJeCalc.Core.Models.PensaoAlimenticia;
-using PJeCalc.Core.Models.PrevidenciaPrivada;
 using PJeCalc.Core.Models.Processo;
 using PJeCalc.Core.Models.SalarioCategoria;
-using PJeCalc.Core.Models.SalarioFamilia;
 using PJeCalc.Core.Models.SalarioMinimo;
-using PJeCalc.Core.Models.SeguroDesemprego;
 using PJeCalc.Core.Models.Usuario;
-using PJeCalc.Core.Models.ValeTransporte;
 using PJeCalc.Core.Models.VerbaCalculo;
 
 namespace PJeCalc.Data.Context;
@@ -89,23 +84,10 @@ public class PJeCalcDbContext : DbContext
     // Pagamento
     public DbSet<Pagamento> Pagamentos => Set<Pagamento>();
 
-    // Pensao & Previdencia
-    public DbSet<PensaoAlimenticia> PensoesAlimenticias => Set<PensaoAlimenticia>();
-    public DbSet<PrevidenciaPrivada> PrevidenciasPrivadas => Set<PrevidenciaPrivada>();
-    public DbSet<AliquotaDePrevidenciaPrivada> AliquotasDePrevidenciaPrivada => Set<AliquotaDePrevidenciaPrivada>();
-    public DbSet<OcorrenciaDePrevidenciaPrivada> OcorrenciasDePrevidenciaPrivada => Set<OcorrenciaDePrevidenciaPrivada>();
-
     // Salarios
     public DbSet<SalarioMinimoNacional> SalariosMinimos => Set<SalarioMinimoNacional>();
-    public DbSet<SalarioFamilia> SalariosFamilia => Set<SalarioFamilia>();
-    public DbSet<OcorrenciaDeSalarioFamilia> OcorrenciasDeSalarioFamilia => Set<OcorrenciaDeSalarioFamilia>();
     public DbSet<SalarioCategoria> SalariosCategorias => Set<SalarioCategoria>();
     public DbSet<OcorrenciaDeSalarioCategoria> OcorrenciasDeSalarioCategoria => Set<OcorrenciaDeSalarioCategoria>();
-
-    // Seguro Desemprego & Vale Transporte
-    public DbSet<SeguroDesemprego> SegurosDesemprego => Set<SeguroDesemprego>();
-    public DbSet<ValeTransporte> ValesTransporte => Set<ValeTransporte>();
-    public DbSet<ValorValeTransporte> ValoresValeTransporte => Set<ValorValeTransporte>();
 
     // Indices Monetarios
     public DbSet<IndiceIGPM> IndicesIGPM => Set<IndiceIGPM>();
@@ -150,10 +132,6 @@ public class PJeCalcDbContext : DbContext
             entity.HasOne(c => c.Irpf).WithOne(i => i.Calculo).HasForeignKey<Irpf>(i => i.CalculoId);
             entity.HasOne(c => c.CustasJudiciais).WithOne(c => c.Calculo).HasForeignKey<CustasJudiciais>(c => c.CalculoId);
             entity.HasOne(c => c.ParametrosDeAtualizacao).WithOne(p => p.Calculo).HasForeignKey<ParametrosDeAtualizacao>(p => p.CalculoId);
-            entity.HasOne(c => c.PensaoAlimenticia).WithOne(p => p.Calculo).HasForeignKey<PensaoAlimenticia>(p => p.CalculoId);
-            entity.HasOne(c => c.PrevidenciaPrivada).WithOne(p => p.Calculo).HasForeignKey<PrevidenciaPrivada>(p => p.CalculoId);
-            entity.HasOne(c => c.SalarioFamilia).WithOne(s => s.Calculo).HasForeignKey<SalarioFamilia>(s => s.CalculoId);
-            entity.HasOne(c => c.SeguroDesemprego).WithOne(s => s.Calculo).HasForeignKey<SeguroDesemprego>(s => s.CalculoId);
         });
 
         // Store enums as strings

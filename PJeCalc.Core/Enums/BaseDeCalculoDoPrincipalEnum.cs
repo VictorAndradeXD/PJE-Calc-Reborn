@@ -20,8 +20,5 @@ public enum BaseDeCalculoDoPrincipalEnum
     SalarioDaCategoria,
 
     [Description("Salário Mínimo")]
-    SalarioMinimo,
-
-    [Description("Vale Transporte")]
-    ValeTransporte
+    SalarioMinimo
 }
