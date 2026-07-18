@@ -22,6 +22,7 @@ public sealed class CsvIndiceProvider : IIndiceProvider
             [IndiceMonetarioEnum.INPC] = "inpc.csv",
             [IndiceMonetarioEnum.IGPM] = "igpm.csv",
             [IndiceMonetarioEnum.TR] = "tr.csv",
+            [IndiceMonetarioEnum.SelicFazenda] = "selicfazenda.csv",
         };
 
     private readonly Dictionary<IndiceMonetarioEnum, IReadOnlyList<IndiceMensal>> _cache = [];

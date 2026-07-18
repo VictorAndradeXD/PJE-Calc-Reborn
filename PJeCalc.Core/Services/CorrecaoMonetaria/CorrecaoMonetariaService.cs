@@ -46,13 +46,8 @@ public sealed class CorrecaoMonetariaService
             .ToList();
 
         var fator = EhSelic(pedido.Indice)
-            ? AcumularAditivo(serie)
+            ? AcumularAditivo(serie, pedido.IgnorarTaxaNegativa)
             : AcumularMultiplicativo(serie, pedido.IgnorarTaxaNegativa);
-
-        // Conversões de moeda no intervalo (no-op para períodos integralmente pós-1994).
-        var divisor = ConversaoDeMoedas.DivisorNoIntervalo(competenciaInicial, competenciaFinal);
-        if (divisor != 1m)
-            fator /= divisor;
 
         return new ResultadoDaCorrecao
         {
@@ -65,25 +60,39 @@ public sealed class CorrecaoMonetariaService
         };
     }
 
-    /// <summary>Produtório dos fatores mensais (regra padrão: IPCA-E, TR, INPC, IGP-M...).</summary>
+    /// <summary>
+    /// Produtório dos fatores mensais (regra padrão: IPCA-E, TR, INPC, IGP-M...).
+    /// A contribuição do mês que marca troca de moeda é dividida pelo divisor de
+    /// conversão, por competência (igual ao motor oficial), o que também mantém o
+    /// intermediário limitado em períodos de hiperinflação.
+    /// </summary>
     private static decimal AcumularMultiplicativo(IEnumerable<IndiceMensal> serie, bool ignorarTaxaNegativa)
     {
         var fator = 1m;
         foreach (var mes in serie)
         {
-            if (ignorarTaxaNegativa && mes.TaxaPercentual < 0m)
-                continue; // mês deflacionário tratado como fator 1
-            fator *= mes.Fator;
+            // Mês deflacionário, quando ignorado, contribui com fator 1.
+            var contribuicao = ignorarTaxaNegativa && mes.TaxaPercentual < 0m ? 1m : mes.Fator;
+
+            var divisor = ConversaoDeMoedas.DivisorNaCompetencia(mes.Competencia);
+            if (divisor != 1m)
+                contribuicao /= divisor;
+
+            fator *= contribuicao;
         }
         return fator;
     }
 
     /// <summary>Soma linear das taxas mensais (família SELIC, que já embute juros + correção).</summary>
-    private static decimal AcumularAditivo(IEnumerable<IndiceMensal> serie)
+    private static decimal AcumularAditivo(IEnumerable<IndiceMensal> serie, bool ignorarTaxaNegativa)
     {
         var soma = 0m;
         foreach (var mes in serie)
+        {
+            if (ignorarTaxaNegativa && mes.TaxaPercentual < 0m)
+                continue; // mês negativo não contribui para a soma
             soma += mes.TaxaPercentual / 100m;
+        }
         return 1m + soma;
     }
 

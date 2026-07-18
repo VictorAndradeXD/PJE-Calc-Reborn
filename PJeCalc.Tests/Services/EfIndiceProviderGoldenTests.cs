@@ -24,7 +24,7 @@ public class EfIndiceProviderGoldenTests
     [MemberData(nameof(CorrecaoMonetariaGoldenTests.Golden), MemberType = typeof(CorrecaoMonetariaGoldenTests))]
     public void Correcao_via_EF_bate_com_o_motor_oficial(
         IndiceMonetarioEnum indice, decimal valor, DateOnly vencimento, DateOnly liquidacao,
-        decimal fatorEsperado, decimal corrigidoEsperado)
+        bool ignorarNegativa, decimal fatorEsperado, decimal corrigidoEsperado)
     {
         _ = fatorEsperado;
 
@@ -38,6 +38,7 @@ public class EfIndiceProviderGoldenTests
             DataLiquidacao = liquidacao,
             Indice = indice,
             Regime = IndicesAcumuladosEnum.MesDoVencimento,
+            IgnorarTaxaNegativa = ignorarNegativa,
         });
 
         Assert.Equal(corrigidoEsperado, r.ValorCorrigido);

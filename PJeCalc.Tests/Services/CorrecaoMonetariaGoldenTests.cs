@@ -30,8 +30,9 @@ public class CorrecaoMonetariaGoldenTests
                 decimal.Parse(c[1], CultureInfo.InvariantCulture),                      // valor
                 DateOnly.ParseExact(c[2], "yyyy-MM-dd", CultureInfo.InvariantCulture),  // vencimento
                 DateOnly.ParseExact(c[3], "yyyy-MM-dd", CultureInfo.InvariantCulture),  // liquidação
-                decimal.Parse(c[4], NumberStyles.Float, CultureInfo.InvariantCulture),  // fator (Java)
-                decimal.Parse(c[5], CultureInfo.InvariantCulture),                      // corrigido (Java)
+                bool.Parse(c[4]),                                                       // ignorar taxa negativa
+                decimal.Parse(c[5], NumberStyles.Float, CultureInfo.InvariantCulture),  // fator (Java)
+                decimal.Parse(c[6], CultureInfo.InvariantCulture),                      // corrigido (Java)
             ];
         }
     }
@@ -40,7 +41,7 @@ public class CorrecaoMonetariaGoldenTests
     [MemberData(nameof(Golden))]
     public void Correcao_bate_com_o_motor_oficial(
         IndiceMonetarioEnum indice, decimal valor, DateOnly vencimento, DateOnly liquidacao,
-        decimal fatorEsperado, decimal corrigidoEsperado)
+        bool ignorarNegativa, decimal fatorEsperado, decimal corrigidoEsperado)
     {
         var r = Service.Corrigir(new PedidoDeCorrecao
         {
@@ -49,13 +50,16 @@ public class CorrecaoMonetariaGoldenTests
             DataLiquidacao = liquidacao,
             Indice = indice,
             Regime = IndicesAcumuladosEnum.MesDoVencimento,
+            IgnorarTaxaNegativa = ignorarNegativa,
         });
 
         // Critério de aceitação: valor corrigido idêntico (2 casas, HALF_EVEN).
         Assert.Equal(corrigidoEsperado, r.ValorCorrigido);
 
-        // Verificação secundária do fator acumulado (Java usa MathContext 38; decimal ~28
-        // dígitos — comparamos a 10 casas, folgado dentro da precisão de ambos).
-        Assert.Equal(Math.Round(fatorEsperado, 10), Math.Round(r.FatorAcumulado, 10));
+        // Verificação secundária do fator acumulado por tolerância relativa (Java usa
+        // MathContext 38; decimal tem ~28 dígitos — a diferença é só ruído de precisão).
+        var escala = Math.Max(Math.Abs(fatorEsperado), 1m);
+        Assert.True(Math.Abs(r.FatorAcumulado - fatorEsperado) <= escala * 0.000000001m,
+            $"Fator {r.FatorAcumulado} distante do esperado {fatorEsperado}.");
     }
 }
