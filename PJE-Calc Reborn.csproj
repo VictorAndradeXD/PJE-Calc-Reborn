@@ -18,14 +18,17 @@
     <Compile Remove="PJeCalc.Core\**" />
     <Compile Remove="PJeCalc.Data\**" />
     <Compile Remove="PJeCalc.Tests\**" />
+    <Compile Remove="PJeCalc.Tools.RefData\**" />
     <Compile Remove="decompiled\**" />
     <EmbeddedResource Remove="PJeCalc.Core\**" />
     <EmbeddedResource Remove="PJeCalc.Data\**" />
     <EmbeddedResource Remove="PJeCalc.Tests\**" />
+    <EmbeddedResource Remove="PJeCalc.Tools.RefData\**" />
     <EmbeddedResource Remove="decompiled\**" />
     <None Remove="PJeCalc.Core\**" />
     <None Remove="PJeCalc.Data\**" />
     <None Remove="PJeCalc.Tests\**" />
+    <None Remove="PJeCalc.Tools.RefData\**" />
     <None Remove="decompiled\**" />
   </ItemGroup>
 

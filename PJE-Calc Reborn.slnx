@@ -3,4 +3,5 @@
   <Project Path="PJeCalc.Core/PJeCalc.Core.csproj" />
   <Project Path="PJeCalc.Data/PJeCalc.Data.csproj" />
   <Project Path="PJeCalc.Tests/PJeCalc.Tests.csproj" />
+  <Project Path="PJeCalc.Tools.RefData/PJeCalc.Tools.RefData.csproj" />
 </Solution>

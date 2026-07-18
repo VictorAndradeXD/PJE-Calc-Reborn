@@ -8,6 +8,12 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.0-*" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Banco de referência pré-construído (índices monetários), embarcado e copiado
+         para a saída dos consumidores. Regenerar com PJeCalc.Tools.RefData. -->
+    <Content Include="Referencia\referencia.sqlite" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
