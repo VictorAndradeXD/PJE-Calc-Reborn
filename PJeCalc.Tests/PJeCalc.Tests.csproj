@@ -23,4 +23,8 @@
     <ProjectReference Include="..\PJeCalc.Data\PJeCalc.Data.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="Fixtures\**\*.csv" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
