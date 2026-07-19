@@ -96,16 +96,8 @@ public sealed class CorrecaoMonetariaService
         return 1m + soma;
     }
 
-    /// <summary>
-    /// Aplica o fator ao valor. Fator negativo divide por -fator, convenção interna
-    /// do PJe-Calc para tratar deflação/ausência de correção.
-    /// </summary>
-    private static decimal Aplicar(decimal valor, decimal fator)
-    {
-        var bruto = fator >= 0m ? valor * fator : valor / -fator;
-        // HALF_EVEN (bancário), igual ao Utils.arredondarValorMonetario do PJe-Calc original.
-        return Math.Round(bruto, 2, MidpointRounding.ToEven);
-    }
+    private static decimal Aplicar(decimal valor, decimal fator) =>
+        AplicacaoDeFator.Aplicar(valor, fator);
 
     private static ResultadoDaCorrecao SemCorrecao(PedidoDeCorrecao pedido) => new()
     {
