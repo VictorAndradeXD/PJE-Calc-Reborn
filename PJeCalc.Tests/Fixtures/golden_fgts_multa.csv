@@ -1,0 +1,6 @@
+incidencia;percentual;excluirAviso;multa467;multa10;baseMulta;valorMulta;multaCorrigida;valor467;valor10
+SobreOTotalDevido;QuarentaPorCento;true;true;true;346.24;138.50;173.12;69.25;37.52
+SobreOTotalDevido;QuarentaPorCento;false;false;false;369.28;147.71;184.64;0;0
+SobreOTotalDevido;VintePorCento;true;false;false;346.24;69.25;86.56;0;0
+SobreDiferenca;QuarentaPorCento;true;false;false;323.04;129.22;161.52;0;0
+SobreDiferenca;QuarentaPorCento;false;false;false;346.08;138.43;173.04;0;0
