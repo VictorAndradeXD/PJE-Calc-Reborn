@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using PJeCalc.Core.Models.Indices;
+using PJeCalc.Core.Models.Juros;
 
 namespace PJeCalc.Data.Context;
 
@@ -24,5 +25,15 @@ public class ReferenciaDbContext : DbContext
     public DbSet<IndiceTR> IndicesTR => Set<IndiceTR>();
     public DbSet<IndiceSelicFazenda> IndicesSelicFazenda => Set<IndiceSelicFazenda>();
 
+    // Faixas de juros por regime.
+    public DbSet<JurosPadrao> JurosPadrao => Set<JurosPadrao>();
+
     public ReferenciaDbContext(DbContextOptions<ReferenciaDbContext> options) : base(options) { }
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        // Enums de juros persistidos como texto (legíveis no banco de referência).
+        modelBuilder.Entity<JurosPadrao>().Property(j => j.TipoDeJuros).HasConversion<string>();
+        modelBuilder.Entity<JurosPadrao>().Property(j => j.TipoDeQuantidade).HasConversion<string>();
+    }
 }

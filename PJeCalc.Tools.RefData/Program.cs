@@ -1,6 +1,8 @@
 using System.Globalization;
 using Microsoft.EntityFrameworkCore;
+using PJeCalc.Core.Enums;
 using PJeCalc.Core.Models.Indices;
+using PJeCalc.Core.Models.Juros;
 using PJeCalc.Data.Context;
 
 // Pré-constrói o banco de referência (referencia.sqlite) com as séries mensais de
@@ -50,6 +52,34 @@ void Importar<T>(string arquivo, Func<T> nova, Action<T, DateTime, decimal> pree
     Console.WriteLine($"  {arquivo,-20} {itens.Count,6} linhas");
 }
 
+// Faixas de juros: "DATAINICIO","DATAFIM","TAXA","TIPOJUROS","TIPOQUANTIDADE".
+void ImportarJurosPadrao(string arquivo)
+{
+    var caminho = Path.Combine(dirCsv, arquivo);
+    var itens = new List<JurosPadrao>();
+    foreach (var linha in File.ReadLines(caminho).Skip(1))
+    {
+        if (string.IsNullOrWhiteSpace(linha)) continue;
+        var p = linha.Split(',');
+        itens.Add(new JurosPadrao
+        {
+            DataInicio = DateTime.ParseExact(Limpar(p[0]), "yyyy-MM-dd", CultureInfo.InvariantCulture),
+            DataFim = string.IsNullOrWhiteSpace(Limpar(p[1]))
+                ? null
+                : DateTime.ParseExact(Limpar(p[1]), "yyyy-MM-dd", CultureInfo.InvariantCulture),
+            Aliquota = decimal.Parse(Limpar(p[2]), NumberStyles.Float, CultureInfo.InvariantCulture),
+            TipoDeJuros = Limpar(p[3]) == "C" ? TipoDeJurosEnum.Compostos : TipoDeJurosEnum.Simples,
+            TipoDeQuantidade = Limpar(p[4]) == "I"
+                ? TipoDeQuantidadeDeJurosBaseEnum.Inteiro
+                : TipoDeQuantidadeDeJurosBaseEnum.Fracao,
+        });
+    }
+    db.AddRange(itens);
+    db.SaveChanges();
+    total += itens.Count;
+    Console.WriteLine($"  {arquivo,-20} {itens.Count,6} faixas");
+}
+
 static string Limpar(string campo) => campo.Trim().Trim('"');
 
 Console.WriteLine($"Construindo {saida}");
@@ -61,6 +91,7 @@ Importar("ipcae.csv",        () => new IndiceIPCAE(),       (e, c, t) => { e.Com
 Importar("ipcaetr.csv",      () => new IndiceIPCAETR(),     (e, c, t) => { e.Competencia = c; e.Taxa = t; });
 Importar("tr.csv",           () => new IndiceTR(),          (e, c, t) => { e.Competencia = c; e.Taxa = t; });
 Importar("selicfazenda.csv", () => new IndiceSelicFazenda(),(e, c, t) => { e.Competencia = c; e.Taxa = t; });
+ImportarJurosPadrao("jurospadrao.csv");
 
-Console.WriteLine($"Concluído: {total} índices em {saida}");
+Console.WriteLine($"Concluído: {total} registros em {saida}");
 return 0;
