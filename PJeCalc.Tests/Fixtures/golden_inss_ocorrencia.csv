@@ -1,0 +1,9 @@
+cenario;previdenciario;cota;corrigido;juros;multa;total
+previdenciario;true;segurado;270.00;33.75;21.6000;325.3500
+previdenciario;true;empresa;405.45;50.68;32.4360;488.5660
+previdenciario;true;sat;20.34;2.54;1.6272;24.5072
+previdenciario;true;terceiros;77.21;9.65;6.1768;93.0368
+trabalhista;false;segurado;240.00;30.00000;0.00;270.00000
+trabalhista;false;empresa;360.40;45.05000;0.00;405.45000
+trabalhista;false;sat;18.08;2.26000;0.00;20.34000
+trabalhista;false;terceiros;68.63;8.57875;0.00;77.20875
