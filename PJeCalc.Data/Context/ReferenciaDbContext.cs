@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using PJeCalc.Core.Models.Indices;
 using PJeCalc.Core.Models.Juros;
+using PJeCalc.Core.Models.Referencia;
 
 namespace PJeCalc.Data.Context;
 
@@ -28,12 +29,17 @@ public class ReferenciaDbContext : DbContext
     // Faixas de juros por regime.
     public DbSet<JurosPadrao> JurosPadrao => Set<JurosPadrao>();
 
+    // Feriados do calendário trabalhista (TBFERIADO/TBEXCECAOFERIADO).
+    public DbSet<FeriadoReferencia> Feriados => Set<FeriadoReferencia>();
+
     public ReferenciaDbContext(DbContextOptions<ReferenciaDbContext> options) : base(options) { }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        // Enums de juros persistidos como texto (legíveis no banco de referência).
+        // Enums persistidos como texto (legíveis no banco de referência).
         modelBuilder.Entity<JurosPadrao>().Property(j => j.TipoDeJuros).HasConversion<string>();
         modelBuilder.Entity<JurosPadrao>().Property(j => j.TipoDeQuantidade).HasConversion<string>();
+        modelBuilder.Entity<FeriadoReferencia>().Property(f => f.Tipo).HasConversion<string>();
+        modelBuilder.Entity<FeriadoReferencia>().Property(f => f.Abrangencia).HasConversion<string>();
     }
 }

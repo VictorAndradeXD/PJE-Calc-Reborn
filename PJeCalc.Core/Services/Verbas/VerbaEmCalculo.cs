@@ -25,7 +25,8 @@ public sealed record ItemBaseVerba(VerbaEmCalculo Verba, bool Integralizar = fal
 /// </summary>
 public sealed record VinculoDeHistoricoSalarial(
     IReadOnlyDictionary<DateOnly, decimal> SalarioPorCompetencia,
-    bool AplicarProporcionalidade = false);
+    bool AplicarProporcionalidade = false,
+    bool ParcelaVariavel = false);
 
 /// <summary>Termo divisor da fórmula.</summary>
 public sealed class TermoDivisor
@@ -40,6 +41,22 @@ public sealed class TermoQuantidade
     public TipoDeQuantidadeEnum Tipo { get; set; } = TipoDeQuantidadeEnum.Informada;
     public decimal ValorInformado { get; set; } = 1m;
     public bool AplicarProporcionalidade { get; set; }
+
+    /// <summary>Métrica usada quando <see cref="Tipo"/> é ImportadaDoCalendario.</summary>
+    public TipoDeQuantidadeImportadaDoCalendarioEnum TipoImportadaDoCalendario { get; set; }
+        = TipoDeQuantidadeImportadaDoCalendarioEnum.Repousos;
+}
+
+/// <summary>
+/// Cartão de ponto consumido pela verba: valores mensais já apurados (a máquina que os
+/// gera a partir de batidas é um módulo separado). O valor da competência é a soma das
+/// ocorrências do mês.
+/// </summary>
+public sealed record CartaoDePontoDaVerba(string Nome, IReadOnlyList<(DateOnly Competencia, decimal Valor)> Ocorrencias)
+{
+    public decimal ValorNoMes(DateOnly mes) =>
+        Ocorrencias.Where(o => o.Competencia.Year == mes.Year && o.Competencia.Month == mes.Month)
+            .Sum(o => o.Valor);
 }
 
 /// <summary>Base tabelada da fórmula (última/maior remuneração, histórico, salário mínimo).</summary>
@@ -88,6 +105,15 @@ public sealed class VerbaEmCalculo
 
     /// <summary>O que esta verba entrega quando é origem de um reflexo.</summary>
     public TipoDeGeracaoEnum GerarReflexo { get; set; } = TipoDeGeracaoEnum.Diferenca;
+
+    /// <summary>
+    /// Parcela de valor variável (média pela quantidade usa a média dos divisores das
+    /// ocorrências em vez do divisor congelado da última).
+    /// </summary>
+    public bool ParcelaVariavel { get; set; }
+
+    public List<CartaoDePontoDaVerba> CartoesDoDivisor { get; } = [];
+    public List<CartaoDePontoDaVerba> CartoesDaQuantidade { get; } = [];
 
     // ---- fórmula da verba calculada / reflexo ----
     public TermoBaseTabelada? BaseTabelada { get; set; }

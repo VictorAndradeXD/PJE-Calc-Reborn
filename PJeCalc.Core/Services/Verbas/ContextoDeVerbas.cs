@@ -62,6 +62,50 @@ public sealed class ContextoDeVerbas
     public List<FaltaDoCalculo> Faltas { get; init; } = [];
 
     // ------------------------------------------------------------------
+    // Calendário e carga horária
+    // ------------------------------------------------------------------
+
+    /// <summary>Sábado é dia útil no contrato? (padrão do motor: sim.)</summary>
+    public bool SabadoDiaUtil { get; init; } = true;
+
+    /// <summary>Períodos em que a regra do sábado é INVERTIDA.</summary>
+    public List<PeriodoDeApuracao> ExcecoesDoSabado { get; init; } = [];
+
+    /// <summary>A data é feriado para este cálculo? (nulo = sem feriados, como o motor headless.)</summary>
+    public Func<DateOnly, bool>? EhFeriado { get; init; }
+
+    public decimal ValorCargaHorariaPadrao { get; init; } = 220m;
+
+    /// <summary>Períodos com carga horária diferente da padrão (não podem se sobrepor).</summary>
+    public List<(PeriodoDeApuracao Periodo, decimal CargaHoraria)> ExcecoesDaCargaHoraria { get; init; } = [];
+
+    private SabadoUtil? _sabadoUtil;
+    public SabadoUtil SabadoUtilComExcecoes => _sabadoUtil ??= new SabadoUtil(SabadoDiaUtil, ExcecoesDoSabado);
+
+    internal bool EhFeriadoNaData(DateOnly data) => EhFeriado?.Invoke(data) ?? false;
+
+    /// <summary>
+    /// Carga horária vigente no período: média, ponderada por dias corridos, entre a
+    /// padrão e as exceções que interceptam o período; 2 casas (HALF_EVEN).
+    /// </summary>
+    public decimal ObterValorCargaHoraria(PeriodoDeApuracao periodo)
+    {
+        var diasNaPadrao = periodo.TotalDeDias;
+        var valor = 0m;
+        foreach (var (excecao, cargaHoraria) in ExcecoesDaCargaHoraria)
+        {
+            var coincidentes = excecao.DiasCoincidentesCom(periodo);
+            if (coincidentes == 0)
+                continue;
+            diasNaPadrao -= coincidentes;
+            valor += cargaHoraria * coincidentes;
+        }
+        if (diasNaPadrao != 0)
+            valor += ValorCargaHorariaPadrao * diasNaPadrao;
+        return Math.Round(valor / periodo.TotalDeDias, 2, MidpointRounding.ToEven);
+    }
+
+    // ------------------------------------------------------------------
     // Provedores de dias a excluir (interseção inclusiva de períodos)
     // ------------------------------------------------------------------
 
@@ -74,6 +118,25 @@ public sealed class ContextoDeVerbas
 
     public int ObterFaltasNaoJustificadas(PeriodoDeApuracao periodo) =>
         Faltas.Where(f => !f.Justificada).Sum(f => periodo.DiasCoincidentesCom(f.Periodo));
+
+    /// <summary>Interseções das faltas justificadas com o período (para métricas de calendário).</summary>
+    public IEnumerable<PeriodoDeApuracao> ObterPeriodosDeFaltasJustificadas(PeriodoDeApuracao periodo) =>
+        Faltas.Where(f => f.Justificada)
+            .Select(f => periodo.Interseccao(f.Periodo))
+            .Where(i => i is not null)
+            .Select(i => i!.Value);
+
+    public IEnumerable<PeriodoDeApuracao> ObterPeriodosDeFaltasNaoJustificadas(PeriodoDeApuracao periodo) =>
+        Faltas.Where(f => !f.Justificada)
+            .Select(f => periodo.Interseccao(f.Periodo))
+            .Where(i => i is not null)
+            .Select(i => i!.Value);
+
+    public IEnumerable<PeriodoDeApuracao> ObterPeriodosDeFeriasGozadas(PeriodoDeApuracao periodo) =>
+        ListaDeFerias.SelectMany(f => f.PeriodosDeGozo)
+            .Select(g => periodo.Interseccao(g))
+            .Where(i => i is not null)
+            .Select(i => i!.Value);
 
     /// <summary>
     /// Prazo das férias proporcionais do período aquisitivo: override manual ou tabela

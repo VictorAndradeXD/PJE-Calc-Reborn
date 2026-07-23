@@ -240,7 +240,7 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
         };
         ocorrencia.Integralizador = valor => IntegralizarNaGeracao(verba, periodo, valor);
 
-        ocorrencia.Divisor = ResolverDivisor(verba);
+        ocorrencia.Divisor = ResolverDivisor(verba, periodo);
         if (ocorrencia.Divisor == 0m)
             ocorrencia.Ativo = false;
 
@@ -412,15 +412,19 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
     // Termos
     // ------------------------------------------------------------------
 
-    private decimal? ResolverDivisor(VerbaEmCalculo verba)
+    private decimal? ResolverDivisor(VerbaEmCalculo verba, PeriodoDeApuracao periodo)
     {
         if (verba.Tipo == TipoDaVerbaEnum.Informada)
             return null;
         return verba.Divisor.Tipo switch
         {
             DivisorDeVerbaEnum.OutroValor => verba.Divisor.OutroValor,
-            _ => throw new NotSupportedException(
-                $"Divisor {verba.Divisor.Tipo} depende de carga horária/calendário/cartão de ponto (etapa futura)."),
+            DivisorDeVerbaEnum.CargaHoraria => _contexto.ObterValorCargaHoraria(periodo),
+            DivisorDeVerbaEnum.DiasUteis => CalendarioTrabalhista.TotalDeDiasUteis(
+                periodo, _contexto.SabadoUtilComExcecoes, _contexto.EhFeriadoNaData),
+            DivisorDeVerbaEnum.ImportadaDoCartao =>
+                verba.CartoesDoDivisor.Sum(c => c.ValorNoMes(periodo.Inicio)),
+            _ => throw new ArgumentOutOfRangeException(nameof(verba)),
         };
     }
 
@@ -450,10 +454,44 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
             case TipoDeQuantidadeEnum.Apurada:
                 return _contexto.QuantidadeDeDiasDoAvisoPrevio();
 
+            case TipoDeQuantidadeEnum.ImportadaDoCalendario:
+                return QuantidadeDoCalendario(verba, periodo);
+
+            case TipoDeQuantidadeEnum.ImportadaDoCartao:
+                return verba.CartoesDaQuantidade.Sum(c => c.ValorNoMes(periodo.Inicio));
+
             default:
-                throw new NotSupportedException(
-                    $"Quantidade {verba.Quantidade.Tipo} depende de calendário/cartão de ponto (etapa futura).");
+                throw new ArgumentOutOfRangeException(nameof(verba));
         }
+    }
+
+    /// <summary>
+    /// Métrica do calendário no período (repousos/dias úteis/feriados/repousos+feriados),
+    /// descontando a mesma métrica nas interseções de faltas e férias gozadas conforme os
+    /// flags de exclusão da verba. Sem piso — pode ficar negativa, como no motor.
+    /// </summary>
+    private decimal QuantidadeDoCalendario(VerbaEmCalculo verba, PeriodoDeApuracao periodo)
+    {
+        var sabado = _contexto.SabadoUtilComExcecoes;
+        Func<PeriodoDeApuracao, int> metrica = verba.Quantidade.TipoImportadaDoCalendario switch
+        {
+            TipoDeQuantidadeImportadaDoCalendarioEnum.Repousos =>
+                p => CalendarioTrabalhista.TotalDeRepousos(p, sabado),
+            TipoDeQuantidadeImportadaDoCalendarioEnum.DiasUteis =>
+                p => CalendarioTrabalhista.TotalDeDiasUteis(p, sabado, _contexto.EhFeriadoNaData),
+            TipoDeQuantidadeImportadaDoCalendarioEnum.Feriados =>
+                p => CalendarioTrabalhista.TotalDeFeriados(p, _contexto.EhFeriadoNaData),
+            _ => p => CalendarioTrabalhista.TotalDeRepousosEFeriados(p, sabado, _contexto.EhFeriadoNaData),
+        };
+
+        var quantidade = metrica(periodo);
+        if (verba.ExcluirFaltaJustificada)
+            quantidade -= _contexto.ObterPeriodosDeFaltasJustificadas(periodo).Sum(metrica);
+        if (verba.ExcluirFaltaNaoJustificada)
+            quantidade -= _contexto.ObterPeriodosDeFaltasNaoJustificadas(periodo).Sum(metrica);
+        if (verba.ExcluirFeriasGozadas)
+            quantidade -= _contexto.ObterPeriodosDeFeriasGozadas(periodo).Sum(metrica);
+        return quantidade;
     }
 
     private decimal ContarAvos(VerbaEmCalculo verba, PeriodoDeApuracao periodo, PeriodoDeApuracao? periodoAquisitivo)
@@ -735,7 +773,7 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
             decimal valorDaBase, valorDaBaseIntegral;
             if (verba.Tipo == TipoDaVerbaEnum.Reflexo)
             {
-                valorDaBase = valorDaBaseIntegral = ComportamentoDoReflexo.Resolver(_contexto, verba, item, ocorrencia);
+                valorDaBase = valorDaBaseIntegral = ComportamentoDoReflexo.Resolver(this, _contexto, verba, item, ocorrencia);
             }
             else
             {
@@ -850,6 +888,44 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
             exclusoes += contexto.ObterFaltasNaoJustificadas(periodo);
         return exclusoes;
     }
+
+    // ------------------------------------------------------------------
+    // Apoio à média pela quantidade
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Base unitária da origem num mês cheio (sem multiplicador/quantidade/divisor):
+    /// base tabelada mais a média ponderada das bases em outras verbas — a
+    /// reconstrução usada pela média pela quantidade.
+    /// </summary>
+    internal decimal ResolverBaseSimuladaDaOrigem(VerbaEmCalculo origem, PeriodoDeApuracao mesCheio)
+    {
+        if (origem.Tipo == TipoDaVerbaEnum.Informada)
+            return 0m;
+
+        var integral = new AcumuladorDeIntegral();
+        var total = 0m;
+        if (origem.Tipo == TipoDaVerbaEnum.Calculada && origem.BaseTabelada is not null)
+        {
+            total += ResolverBaseTabelada(origem, origem.BaseTabelada, mesCheio,
+                periodoAquisitivo: null, feriasIndenizadas: false, fasePago: false,
+                integral, descontarAbonoNosDias: true) ?? 0m;
+        }
+        foreach (var item in origem.BasesVerba)
+        {
+            if (item.Verba.ParcelaVariavel)
+                throw new NotSupportedException(
+                    "Base simulada sobre parcela variável (média por janela) — etapa futura.");
+            if (!item.Verba.Liquidada)
+                Liquidar(item.Verba);
+            total += MediaPonderadaPorDias(origem, item, mesCheio, out _);
+        }
+        return total;
+    }
+
+    /// <summary>Resolve o termo divisor da fórmula da ORIGEM num período (fallback da média MQ).</summary>
+    internal decimal? ResolverDivisorDaOrigem(VerbaEmCalculo origem, PeriodoDeApuracao periodo) =>
+        ResolverDivisor(origem, periodo);
 
     // ------------------------------------------------------------------
     // Apoio

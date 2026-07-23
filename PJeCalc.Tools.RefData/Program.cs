@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using PJeCalc.Core.Enums;
 using PJeCalc.Core.Models.Indices;
 using PJeCalc.Core.Models.Juros;
+using PJeCalc.Core.Models.Referencia;
 using PJeCalc.Data.Context;
 
 // Pré-constrói o banco de referência (referencia.sqlite) com as séries mensais de
@@ -32,9 +33,21 @@ db.Database.EnsureCreated();
 
 var total = 0;
 
+// Aceita os CSVs soltos no diretório ou organizados nas subpastas das fixtures.
+string Achar(string arquivo)
+{
+    foreach (var subpasta in new[] { "", "Indices", "Juros", "Feriados" })
+    {
+        var candidato = Path.Combine(dirCsv, subpasta, arquivo);
+        if (File.Exists(candidato))
+            return candidato;
+    }
+    throw new FileNotFoundException($"CSV não encontrado: {arquivo} (procurado em {dirCsv} e subpastas).");
+}
+
 void Importar<T>(string arquivo, Func<T> nova, Action<T, DateTime, decimal> preencher) where T : class
 {
-    var caminho = Path.Combine(dirCsv, arquivo);
+    var caminho = Achar(arquivo);
     var itens = new List<T>();
     foreach (var linha in File.ReadLines(caminho).Skip(1))
     {
@@ -55,7 +68,7 @@ void Importar<T>(string arquivo, Func<T> nova, Action<T, DateTime, decimal> pree
 // Faixas de juros: "DATAINICIO","DATAFIM","TAXA","TIPOJUROS","TIPOQUANTIDADE".
 void ImportarJurosPadrao(string arquivo)
 {
-    var caminho = Path.Combine(dirCsv, arquivo);
+    var caminho = Achar(arquivo);
     var itens = new List<JurosPadrao>();
     foreach (var linha in File.ReadLines(caminho).Skip(1))
     {
@@ -80,6 +93,57 @@ void ImportarJurosPadrao(string arquivo)
     Console.WriteLine($"  {arquivo,-20} {itens.Count,6} faixas");
 }
 
+// Feriados: TBFERIADO ("IIDFERIADO","STPFERIADO","STPABRANGENCIA","SSGESTADO",
+// "ICDMUNICIPIO","SNMFERIADO","DDTFERIADO","DDTINICIOVIGENCIA","DDTFIMVIGENCIA",
+// "SFLFERIADOMOVEL") + TBEXCECAOFERIADO ("IIDFERIADO","DDTEXCECAOFERIADO").
+void ImportarFeriados(string arquivoFeriados, string arquivoExcecoes)
+{
+    var excecoesPorFeriado = File.ReadLines(Achar(arquivoExcecoes)).Skip(1)
+        .Where(l => !string.IsNullOrWhiteSpace(l))
+        .Select(l => l.Split(','))
+        .ToLookup(p => long.Parse(Limpar(p[0])), p => DateTime.ParseExact(Limpar(p[1]), "yyyy-MM-dd", CultureInfo.InvariantCulture));
+
+    var feriados = new List<FeriadoReferencia>();
+    foreach (var linha in File.ReadLines(Achar(arquivoFeriados)).Skip(1))
+    {
+        if (string.IsNullOrWhiteSpace(linha)) continue;
+        var p = linha.Split(',');
+        var id = long.Parse(Limpar(p[0]));
+        feriados.Add(new FeriadoReferencia
+        {
+            Id = id,
+            Tipo = Limpar(p[1]) switch
+            {
+                "F" => TipoDeFeriadoEnum.Feriado,
+                "P" => TipoDeFeriadoEnum.PontoFacultativo,
+                _ => TipoDeFeriadoEnum.Bancario,
+            },
+            Abrangencia = Limpar(p[2]) switch
+            {
+                "F" => AbrangenciaDoFeriadoEnum.Federal,
+                "E" => AbrangenciaDoFeriadoEnum.Estadual,
+                _ => AbrangenciaDoFeriadoEnum.Municipal,
+            },
+            Estado = Limpar(p[3]) is { Length: > 0 } uf ? uf : null,
+            Municipio = Limpar(p[4]) is { Length: > 0 } municipio ? long.Parse(municipio) : null,
+            Nome = Limpar(p[5]),
+            Data = Limpar(p[6]) is { Length: > 0 } data
+                ? DateTime.ParseExact(data, "yyyy-MM-dd", CultureInfo.InvariantCulture)
+                : null,
+            InicioVigencia = DateTime.ParseExact(Limpar(p[7]), "yyyy-MM-dd", CultureInfo.InvariantCulture),
+            FimVigencia = Limpar(p[8]) is { Length: > 0 } fim
+                ? DateTime.ParseExact(fim, "yyyy-MM-dd", CultureInfo.InvariantCulture)
+                : null,
+            Movel = Limpar(p[9]) == "S",
+            Excecoes = excecoesPorFeriado[id].Select(d => new ExcecaoDeFeriadoReferencia { Data = d }).ToList(),
+        });
+    }
+    db.AddRange(feriados);
+    db.SaveChanges();
+    total += feriados.Count;
+    Console.WriteLine($"  {arquivoFeriados,-20} {feriados.Count,6} feriados ({feriados.Sum(f => f.Excecoes.Count)} datas de móveis)");
+}
+
 static string Limpar(string campo) => campo.Trim().Trim('"');
 
 Console.WriteLine($"Construindo {saida}");
@@ -92,6 +156,7 @@ Importar("ipcaetr.csv",      () => new IndiceIPCAETR(),     (e, c, t) => { e.Com
 Importar("tr.csv",           () => new IndiceTR(),          (e, c, t) => { e.Competencia = c; e.Taxa = t; });
 Importar("selicfazenda.csv", () => new IndiceSelicFazenda(),(e, c, t) => { e.Competencia = c; e.Taxa = t; });
 ImportarJurosPadrao("jurospadrao.csv");
+ImportarFeriados("feriado.csv", "feriado_excecao.csv");
 
 Console.WriteLine($"Concluído: {total} registros em {saida}");
 return 0;

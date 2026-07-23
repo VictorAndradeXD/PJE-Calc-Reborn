@@ -21,7 +21,8 @@ namespace PJeCalc.Core.Services.Verbas;
 internal static class ComportamentoDoReflexo
 {
     public static decimal Resolver(
-        ContextoDeVerbas contexto, VerbaEmCalculo reflexo, ItemBaseVerba item, OcorrenciaDaVerba ocorrencia)
+        MotorDeVerbas motor, ContextoDeVerbas contexto, VerbaEmCalculo reflexo, ItemBaseVerba item,
+        OcorrenciaDaVerba ocorrencia)
     {
         var periodo = new PeriodoDeApuracao(ocorrencia.DataInicial, ocorrencia.DataFinal);
         return reflexo.ComportamentoDoReflexo switch
@@ -31,10 +32,248 @@ internal static class ComportamentoDoReflexo
                 MediaPeloValor(contexto, reflexo, item, ocorrencia, periodo, corrigir: false),
             ComportamentoDoReflexoEnum.MediaPeloValorCorrigido =>
                 MediaPeloValor(contexto, reflexo, item, ocorrencia, periodo, corrigir: true),
-            ComportamentoDoReflexoEnum.MediaPelaQuantidade => throw new NotSupportedException(
-                "Média pela quantidade depende da base simulada da origem (etapa futura)."),
+            ComportamentoDoReflexoEnum.MediaPelaQuantidade =>
+                MediaPelaQuantidade(motor, contexto, reflexo, item, ocorrencia, periodo),
             _ => throw new ArgumentOutOfRangeException(nameof(reflexo)),
         };
+    }
+
+    /// <summary>
+    /// Média pela quantidade: média mensal das quantidades da origem (quantidade ×
+    /// multiplicador, ×2 na dobra; sobre a DIFERENÇA, cada mês entra na proporção não
+    /// paga — e meses de devido zero com pagamento viram abatimento), aplicada à base
+    /// unitária da origem reconstruída no período do reflexo e dividida pelo divisor
+    /// efetivo (o da ocorrência ativa mais recente quando a parcela é fixa; a média dos
+    /// divisores da janela quando variável).
+    /// </summary>
+    private static decimal MediaPelaQuantidade(
+        MotorDeVerbas motor, ContextoDeVerbas contexto, VerbaEmCalculo reflexo, ItemBaseVerba item,
+        OcorrenciaDaVerba ocorrencia, PeriodoDeApuracao periodo)
+    {
+        var origem = item.Verba;
+        var quantidadeEsperada = QuantidadeEsperadaDeCompetencias(contexto, reflexo, ocorrencia, periodo);
+        if (quantidadeEsperada <= 0)
+            return 0m;
+        var grupos = AgruparPorCompetencia(OcorrenciasDaJanela(contexto, reflexo, origem, ocorrencia, periodo));
+        if (grupos.Count == 0)
+            return 0m;
+
+        var mediaQuantidade = 0m;
+        var abatimento = 0m;
+
+        foreach (var (competencia, ocorrencias) in grupos)
+        {
+            var quantidadeDaCompetencia = 0m;
+            decimal? quantidadeIntegralDaCompetencia = null;
+            var abatimentoDaCompetencia = 0m;
+            decimal? abatimentoIntegralDaCompetencia = null;
+            var diasCobertos = new HashSet<DateOnly>();
+            var diasParaExcluir = 0;
+
+            foreach (var o in ocorrencias)
+            {
+                if (!o.Ativo)
+                    continue;
+                for (var d = o.DataInicial; d <= o.DataFinal; d = d.AddDays(1))
+                    diasCobertos.Add(d);
+                diasParaExcluir += MotorDeVerbas.DiasParaExcluirDaOrigem(contexto, origem, o);
+
+                var multiplicador = o.Multiplicador ?? 1m;
+                var quantidade = (o.Quantidade ?? 0m) * multiplicador;
+                var quantidadeIntegral = o.QuantidadeIntegral is { } qi ? qi * multiplicador : (decimal?)null;
+                if (o.Dobra)
+                {
+                    quantidade *= 2m;
+                    quantidadeIntegral *= 2m;
+                }
+
+                if (origem.GerarReflexo == TipoDeGeracaoEnum.Diferenca)
+                {
+                    if ((o.Devido ?? 0m) == 0m)
+                        abatimentoDaCompetencia += o.Diferenca;
+                    else
+                        quantidade = quantidade * o.Diferenca / o.Devido!.Value;
+
+                    if ((o.DevidoIntegral ?? 0m) == 0m)
+                        abatimentoIntegralDaCompetencia ??= o.DiferencaIntegral;
+                    else if (quantidadeIntegral is not null)
+                        quantidadeIntegral = quantidadeIntegral * o.DiferencaIntegral / o.DevidoIntegral!.Value;
+                }
+
+                quantidadeDaCompetencia += quantidade;
+                quantidadeIntegralDaCompetencia ??= quantidadeIntegral;
+            }
+            if (diasCobertos.Count == 0)
+                continue;
+
+            var diasLiquidos = diasCobertos.Count - diasParaExcluir;
+            switch (reflexo.TratamentoDaFracaoDeMes)
+            {
+                case TratamentoDaFracaoDeMesDoReflexoEnum.Integralizar when diasLiquidos > 0:
+                    quantidadeDaCompetencia = quantidadeIntegralDaCompetencia
+                        ?? MotorDeVerbas.IntegralizarPeriodoCondensado(
+                            competencia, quantidadeDaCompetencia, diasCobertos.Count, diasParaExcluir);
+                    abatimentoDaCompetencia = abatimentoIntegralDaCompetencia
+                        ?? MotorDeVerbas.IntegralizarPeriodoCondensado(
+                            competencia, abatimentoDaCompetencia, diasCobertos.Count, diasParaExcluir);
+                    break;
+
+                // Aqui o motor normaliza o mês de 31 dias para 30 antes de comparar
+                // (diferente da média pelo valor, que compara com os dias reais do mês).
+                case TratamentoDaFracaoDeMesDoReflexoEnum.Desprezar
+                    when diasLiquidos < Math.Min(DateTime.DaysInMonth(competencia.Year, competencia.Month), 30):
+                case TratamentoDaFracaoDeMesDoReflexoEnum.DesprezarMenorQue15Dias when diasLiquidos < 15:
+                    quantidadeEsperada--;
+                    continue;
+            }
+
+            mediaQuantidade += quantidadeDaCompetencia;
+            abatimento += abatimentoDaCompetencia;
+        }
+
+        if (quantidadeEsperada <= 0 || mediaQuantidade <= 0m)
+            return 0m;
+        mediaQuantidade /= quantidadeEsperada;
+        abatimento /= quantidadeEsperada;
+
+        // Base unitária da origem reconstruída mês a mês no período da ocorrência do
+        // reflexo (mês cheio), ponderada pelos dias de cada fração; idem para a média
+        // dos divisores das ocorrências da janela.
+        var janelaDoDivisor = JanelaParaMediaDoDivisor(contexto, reflexo, ocorrencia, grupos.Keys);
+        var basePonderada = 0m;
+        var divisorPonderado = 0m;
+        foreach (var mes in PeriodoDeApuracao.QuebrarEmMeses(periodo.Inicio, periodo.Fim))
+        {
+            var mesCheio = new PeriodoDeApuracao(
+                PeriodoDeApuracao.Competencia(mes.Fim), PeriodoDeApuracao.UltimoDiaDoMes(mes.Fim));
+            basePonderada += motor.ResolverBaseSimuladaDaOrigem(origem, mesCheio) * mes.TotalDeDias;
+
+            var mediaDivisor = ObterMediaDoDivisor(origem, janelaDoDivisor);
+            if (mediaDivisor == 0m && ocorrencia.PeriodoAquisitivo is { } aquisitivo)
+                mediaDivisor = ObterMediaDoDivisor(origem, aquisitivo);
+            divisorPonderado += mediaDivisor * mes.TotalDeDias;
+        }
+        basePonderada /= periodo.TotalDeDias;
+        divisorPonderado /= periodo.TotalDeDias;
+        if (divisorPonderado == 0m)
+            divisorPonderado = 1m;
+
+        if (!UtilizarDivisorVariavel(origem))
+            divisorPonderado = DivisorDaParcelaFixa(motor, contexto, origem, periodo) ?? divisorPonderado;
+
+        var valor = basePonderada * mediaQuantidade / divisorPonderado + abatimento;
+
+        if (EhDestinoFerias(contexto, reflexo))
+        {
+            valor = EhOcorrenciaDeUmDiaNaDemissao(contexto, periodo)
+                ? MultiplicarPelosDiasDeFerias(contexto, ocorrencia, valor, descontarAbono: true,
+                    somenteSeIndenizada: true)
+                : valor * periodo.TotalDeDias;
+            valor /= 30m;
+        }
+        return valor;
+    }
+
+    /// <summary>
+    /// Janela usada na média dos divisores: para o período aquisitivo, os últimos 12
+    /// meses anteriores ao mês da ocorrência (recortados pela admissão); nas demais,
+    /// o intervalo [min, max] das competências que têm ocorrência na janela da média.
+    /// </summary>
+    private static PeriodoDeApuracao JanelaParaMediaDoDivisor(
+        ContextoDeVerbas contexto, VerbaEmCalculo reflexo, OcorrenciaDaVerba ocorrencia,
+        IEnumerable<DateOnly> competenciasDaJanela)
+    {
+        if (reflexo.PeriodoDaMedia == PeriodoDaMediaDoReflexoEnum.PeriodoAquisitivo)
+        {
+            var mes = PeriodoDeApuracao.Competencia(ocorrencia.DataInicial);
+            var inicio = mes.AddMonths(-12);
+            var fim = PeriodoDeApuracao.UltimoDiaDoMes(mes.AddMonths(-1));
+            if (contexto.DataAdmissao > fim)
+                return new PeriodoDeApuracao(mes, PeriodoDeApuracao.UltimoDiaDoMes(mes));
+            if (contexto.DataAdmissao > inicio)
+                inicio = contexto.DataAdmissao;
+            return new PeriodoDeApuracao(inicio, fim);
+        }
+
+        var lista = competenciasDaJanela.ToList();
+        return lista.Count == 0
+            ? new PeriodoDeApuracao(ocorrencia.DataInicial, ocorrencia.DataFinal)
+            : new PeriodoDeApuracao(lista.Min(), lista.Max());
+    }
+
+    /// <summary>
+    /// Média dos divisores das ocorrências ativas da origem na janela: meses sem
+    /// ocorrência (ou com divisor nulo/zero) saem do denominador — fiel ao motor, que
+    /// pode decrementar mais de uma vez no mesmo mês.
+    /// </summary>
+    private static decimal ObterMediaDoDivisor(VerbaEmCalculo origem, PeriodoDeApuracao janela)
+    {
+        var soma = 0m;
+        var meses = PeriodoDeApuracao.QuebrarEmMeses(janela.Inicio, janela.Fim);
+        var totalDeMeses = meses.Count;
+        foreach (var mes in meses)
+        {
+            var doMes = origem.OcorrenciasDoMes(mes.Fim).Where(o => o.Ativo).ToList();
+            if (doMes.Count == 0)
+            {
+                totalDeMeses--;
+                continue;
+            }
+            foreach (var o in doMes)
+            {
+                if (o.Divisor is not { } divisor || divisor == 0m)
+                {
+                    totalDeMeses--;
+                    continue;
+                }
+                soma += divisor;
+            }
+        }
+        return totalDeMeses > 0 ? soma / totalDeMeses : soma;
+    }
+
+    private static bool UtilizarDivisorVariavel(VerbaEmCalculo origem) =>
+        origem.ParcelaVariavel ||
+        origem.BasesVerba.Any(i => i.Verba.ParcelaVariavel) ||
+        origem.HistoricosDaBase.Any(v => v.ParcelaVariavel);
+
+    /// <summary>
+    /// Divisor da origem de parcela fixa: o da ocorrência ativa mais recente do mês
+    /// final do reflexo, retrocedendo mês a mês até a admissão; em último caso, o termo
+    /// divisor da fórmula da origem resolvido no mês cheio.
+    /// </summary>
+    private static decimal? DivisorDaParcelaFixa(
+        MotorDeVerbas motor, ContextoDeVerbas contexto, VerbaEmCalculo origem, PeriodoDeApuracao periodo)
+    {
+        var maisRecente = OcorrenciaAtivaMaisRecenteDoMes(origem, periodo.Fim);
+        if (maisRecente?.Divisor is { } divisor)
+            return divisor;
+
+        var mes = PeriodoDeApuracao.Competencia(periodo.Fim).AddMonths(-1);
+        while (contexto.DataAdmissao <= PeriodoDeApuracao.UltimoDiaDoMes(mes))
+        {
+            var candidato = OcorrenciaAtivaMaisRecenteDoMes(origem, mes);
+            if (candidato?.Divisor is { } divisorDoMes)
+                return divisorDoMes;
+            if (contexto.DataAdmissao > mes)
+                break;
+            mes = mes.AddMonths(-1);
+        }
+
+        var mesCheio = new PeriodoDeApuracao(
+            PeriodoDeApuracao.Competencia(periodo.Fim), PeriodoDeApuracao.UltimoDiaDoMes(periodo.Fim));
+        return motor.ResolverDivisorDaOrigem(origem, mesCheio);
+    }
+
+    private static OcorrenciaDaVerba? OcorrenciaAtivaMaisRecenteDoMes(VerbaEmCalculo origem, DateOnly mes)
+    {
+        OcorrenciaDaVerba? maisRecente = null;
+        foreach (var o in origem.OcorrenciasDoMes(mes))
+        {
+            if (o.Ativo && (maisRecente is null || o.DataFinal > maisRecente.DataFinal))
+                maisRecente = o;
+        }
+        return maisRecente;
     }
 
     private static bool EhDestinoFerias(ContextoDeVerbas contexto, VerbaEmCalculo reflexo) =>
