@@ -32,6 +32,21 @@ public sealed class OcorrenciaDaVerba
     public bool FeriasIndenizadas { get; set; }
     public bool FeriasComAbono { get; set; }
 
+    public DateOnly? InicioDoPeriodoAquisitivo { get; set; }
+    public DateOnly? FimDoPeriodoAquisitivo { get; set; }
+
+    public PeriodoDeApuracao? PeriodoAquisitivo =>
+        InicioDoPeriodoAquisitivo is { } inicio && FimDoPeriodoAquisitivo is { } fim
+            ? new PeriodoDeApuracao(inicio, fim)
+            : null;
+
+    /// <summary>
+    /// Fator do abono pecuniário aplicado à base na liquidação (prazo ÷ (prazo − dias de
+    /// abono); 1,5 quando o período aquisitivo não casa com férias cadastradas).
+    /// As incidências dividem por ele para retirar o abono.
+    /// </summary>
+    public decimal FatorAbono { get; internal set; } = 1.5m;
+
     private decimal? _quantidadeIntegral;
     private decimal? _devidoIntegral;
     private decimal? _pagoIntegral;
@@ -88,8 +103,8 @@ public sealed class OcorrenciaDaVerba
 
     /// <summary>
     /// Diferença (corrigida ou não) que alimenta as incidências (FGTS/INSS/IRPF):
-    /// nula para férias indenizadas; férias em dobro contam metade; o abono é retirado.
-    /// Arredondada a 2 casas.
+    /// nula para férias indenizadas; férias em dobro contam metade; o abono pecuniário é
+    /// retirado (÷ <see cref="FatorAbono"/>). Arredondada a 2 casas.
     /// </summary>
     public decimal? DiferencaParaCalculoDasIncidencias(bool corrigida = false)
     {
@@ -98,7 +113,8 @@ public sealed class OcorrenciaDaVerba
         var valor = corrigida ? DiferencaCorrigida ?? 0m : Diferenca;
         if (Verba.Caracteristica == CaracteristicaDaVerbaEnum.Ferias && Dobra)
             valor *= 0.5m;
-        // Retirada do abono (base ÷ fator) entra na etapa de Férias.
+        if (FeriasComAbono && Verba.TipoValor == TipoValorEnum.Calculado)
+            valor /= FatorAbono;
         return Math.Round(valor, 2, MidpointRounding.ToEven);
     }
 }

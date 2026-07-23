@@ -12,6 +12,12 @@ namespace PJeCalc.Core.Services.Verbas;
 /// <c>devido = base ÷ divisor × multiplicador × quantidade</c> (dobrada quando é o caso)
 /// é aplicada e arredondada a 2 casas (HALF_EVEN). Dependências entre verbas são
 /// resolvidas recursivamente, com detecção de ciclo.
+///
+/// Férias geram por período aquisitivo: uma ocorrência por parte de gozo (dividida no fim
+/// do período concessivo — a parte posterior recebe a dobra), saldo/indenizadas em
+/// ocorrência de 1 dia na demissão e o período fracionário (≥ 15 dias até a demissão
+/// projetada com o aviso). A prescrição quinquenal barra férias cujo concessivo terminou
+/// antes da data de prescrição.
 /// </summary>
 public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
 {
@@ -50,8 +56,8 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
                     break;
 
                 case OcorrenciaDePagamentoEnum.PeriodoAquisitivo:
-                    throw new NotSupportedException(
-                        "Geração por período aquisitivo (férias) será implementada na etapa de Férias.");
+                    GerarOcorrenciasDePeriodoAquisitivo(verba);
+                    break;
             }
         });
     }
@@ -118,6 +124,97 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
             CriarOcorrencia(verba, new PeriodoDeApuracao(demissao.Value, demissao.Value));
     }
 
+    private void GerarOcorrenciasDePeriodoAquisitivo(VerbaEmCalculo verba)
+    {
+        var demissao = _contexto.DataDemissao;
+        var demissaoNoPeriodo = demissao is { } dem && dem <= verba.PeriodoFinal;
+
+        // Período aquisitivo fracionário: do fim do último PA completo (ou admissão) até a
+        // demissão projetada com o aviso; só conta com pelo menos 15 dias.
+        PeriodoDeApuracao? fracionario = null;
+        if (demissaoNoPeriodo)
+        {
+            var ultimoAquisitivo = _contexto.ListaDeFerias
+                .Select(f => f.PeriodoAquisitivo)
+                .OrderBy(pa => pa.Fim)
+                .Cast<PeriodoDeApuracao?>()
+                .LastOrDefault();
+            var inicioFracionario = ultimoAquisitivo?.Fim.AddDays(1) ?? _contexto.DataAdmissao;
+            inicioFracionario = AjustarPorFaltaQueReiniciaFerias(inicioFracionario);
+            var projetada = _contexto.DataDemissaoProjetada!.Value;
+            if (projetada.DayNumber - inicioFracionario.DayNumber + 1 >= MinimoDeDiasParaUmAvo)
+                fracionario = new PeriodoDeApuracao(inicioFracionario, projetada);
+        }
+
+        foreach (var ferias in _contexto.ListaDeFerias)
+        {
+            var aquisitivo = ferias.PeriodoAquisitivo;
+            var prescricaoPermite = !_contexto.PrescricaoQuinquenal ||
+                _contexto.DataPrescricaoQuinquenal is not { } prescricao ||
+                prescricao <= ferias.PeriodoConcessivo.Fim;
+
+            switch (ferias.Situacao)
+            {
+                case SituacaoDaFeriasEnum.Gozadas:
+                case SituacaoDaFeriasEnum.GozadasParcialmente:
+                {
+                    var fimDoConcessivo = ferias.PeriodoConcessivo.Fim;
+                    var gozos = new (PeriodoDeApuracao? Gozo, bool Dobra)[]
+                    {
+                        (ferias.PeriodoDeGozo1, ferias.DobraDoPeriodoDeGozo1),
+                        (ferias.PeriodoDeGozo2, ferias.DobraDoPeriodoDeGozo2),
+                        (ferias.PeriodoDeGozo3, ferias.DobraDoPeriodoDeGozo3),
+                    };
+                    foreach (var (gozoTalvez, dobraDoGozo) in gozos)
+                    {
+                        if (gozoTalvez is not { } gozo)
+                            continue;
+                        if (gozo.Inicio >= verba.PeriodoInicial && gozo.Inicio <= verba.PeriodoFinal)
+                        {
+                            var partes = gozo.DividirNaData(fimDoConcessivo);
+                            foreach (var parte in partes)
+                            {
+                                // Cruza o fim do concessivo: a parte dentro dele sai sem
+                                // dobra; a posterior (ou o gozo inteiro) leva a do gozo.
+                                var dobra = partes.Count == 2 && parte.Inicio <= fimDoConcessivo
+                                    ? false
+                                    : dobraDoGozo;
+                                CriarOcorrencia(verba, parte, aquisitivo, dobra,
+                                    feriasIndenizadas: false, feriasComAbono: ferias.Abono);
+                            }
+                        }
+                    }
+
+                    if (ferias.Prazo > ferias.TotalDeDiasDeGozo && demissaoNoPeriodo && prescricaoPermite)
+                    {
+                        // Saldo não gozado: ocorrência de 1 dia na demissão, indenizada.
+                        CriarOcorrencia(verba, new PeriodoDeApuracao(demissao!.Value, demissao.Value),
+                            aquisitivo, ferias.DobraGeral, feriasIndenizadas: true, feriasComAbono: ferias.Abono);
+                    }
+                    break;
+                }
+
+                case SituacaoDaFeriasEnum.Indenizadas when demissaoNoPeriodo && prescricaoPermite:
+                    CriarOcorrencia(verba, new PeriodoDeApuracao(demissao!.Value, demissao.Value),
+                        aquisitivo, ferias.DobraGeral, feriasIndenizadas: true, feriasComAbono: false);
+                    break;
+            }
+        }
+
+        if (fracionario is { } frac)
+        {
+            CriarOcorrencia(verba, new PeriodoDeApuracao(demissao!.Value, demissao.Value),
+                frac, dobraObrigatoria: false, feriasIndenizadas: true, feriasComAbono: false);
+        }
+    }
+
+    /// <summary>A última falta que reinicia férias empurra o início do PA fracionário.</summary>
+    private DateOnly AjustarPorFaltaQueReiniciaFerias(DateOnly inicioFracionario)
+    {
+        var reinicios = GeradorDePeriodosDeFerias.ReiniciosPorFalta(_contexto);
+        return reinicios.Count > 0 && reinicios[^1] > inicioFracionario ? reinicios[^1] : inicioFracionario;
+    }
+
     private void CriarOcorrenciaNoDia(VerbaEmCalculo verba, int ano, int dia)
     {
         var data = new DateOnly(ano, 12, dia);
@@ -126,7 +223,9 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
 
     private static bool MesmoMesEAno(DateOnly a, DateOnly b) => a.Year == b.Year && a.Month == b.Month;
 
-    private void CriarOcorrencia(VerbaEmCalculo verba, PeriodoDeApuracao periodo)
+    private void CriarOcorrencia(
+        VerbaEmCalculo verba, PeriodoDeApuracao periodo, PeriodoDeApuracao? periodoAquisitivo = null,
+        bool dobraObrigatoria = false, bool feriasIndenizadas = false, bool feriasComAbono = false)
     {
         var ocorrencia = new OcorrenciaDaVerba
         {
@@ -134,6 +233,10 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
             DataInicial = periodo.Inicio,
             DataFinal = periodo.Fim,
             Valor = verba.TipoValor,
+            InicioDoPeriodoAquisitivo = periodoAquisitivo?.Inicio,
+            FimDoPeriodoAquisitivo = periodoAquisitivo?.Fim,
+            FeriasIndenizadas = feriasIndenizadas,
+            FeriasComAbono = feriasComAbono,
         };
         ocorrencia.Integralizador = valor => IntegralizarNaGeracao(verba, periodo, valor);
 
@@ -143,7 +246,7 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
 
         ocorrencia.Multiplicador = verba.Tipo == TipoDaVerbaEnum.Informada ? null : verba.Multiplicador;
 
-        var quantidade = ResolverQuantidade(verba, periodo, out var quantidadeIntegral);
+        var quantidade = ResolverQuantidade(verba, periodo, periodoAquisitivo, out var quantidadeIntegral);
         ocorrencia.Quantidade = quantidade;
         ocorrencia.QuantidadeIntegral = quantidadeIntegral ?? IntegralizarNaGeracaoOuZero(verba, periodo, quantidade);
 
@@ -151,11 +254,13 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
         ocorrencia.Devido = Arredondar(devido);
         ocorrencia.DevidoIntegral = devidoIntegral ?? IntegralizarNaGeracaoOuZero(verba, periodo, devido);
 
-        var pago = ResolverValorPago(verba, periodo, out var pagoIntegral);
+        var pago = ResolverValorPago(verba, periodo, periodoAquisitivo, out var pagoIntegral);
         ocorrencia.Pago = Arredondar(pago);
         ocorrencia.PagoIntegral = pagoIntegral ?? IntegralizarNaGeracaoOuZero(verba, periodo, pago);
 
         ocorrencia.Dobra = verba.Tipo != TipoDaVerbaEnum.Informada && verba.Dobra;
+        if (dobraObrigatoria)
+            ocorrencia.Dobra = true;
 
         CalcularValorDevidoDaOcorrencia(ocorrencia);
         verba.Ocorrencias.Add(ocorrencia);
@@ -213,8 +318,17 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
         {
             foreach (var ocorrencia in verba.OcorrenciasAtivas)
             {
-                var periodo = new PeriodoDeApuracao(ocorrencia.DataInicial, ocorrencia.DataFinal);
-                var valorDaBase = ObterValorDaBase(verba, periodo, out var valorDaBaseIntegral);
+                var valorDaBase = ObterValorDaBase(verba, ocorrencia, out var valorDaBaseIntegral);
+
+                if (ocorrencia.FeriasComAbono && verba.TipoValor == TipoValorEnum.Calculado)
+                {
+                    // O abono é pago junto: a base do gozo é inflada pelo fator
+                    // prazo ÷ (prazo − dias de abono); as incidências o retiram depois.
+                    var fator = CalcularFatorAbono(ocorrencia);
+                    ocorrencia.FatorAbono = fator;
+                    valorDaBase *= fator;
+                    valorDaBaseIntegral *= fator;
+                }
 
                 ocorrencia.Base = Arredondar(valorDaBase);
                 ocorrencia.BaseIntegral = Arredondar(valorDaBaseIntegral);
@@ -225,8 +339,26 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
         });
     }
 
-    private decimal? ObterValorDaBase(VerbaEmCalculo verba, PeriodoDeApuracao periodo, out decimal? valorIntegral)
+    /// <summary>
+    /// Fator do abono: prazo ÷ (prazo − dias de abono) das férias cujo período aquisitivo
+    /// coincide com o da ocorrência; 1,5 quando não há férias correspondentes.
+    /// </summary>
+    private decimal CalcularFatorAbono(OcorrenciaDaVerba ocorrencia)
     {
+        if (ocorrencia.PeriodoAquisitivo is { } aquisitivo)
+        {
+            foreach (var ferias in _contexto.ListaDeFerias)
+            {
+                if (ferias.PeriodoAquisitivo.CoincideCom(aquisitivo))
+                    return ferias.FatorAbono;
+            }
+        }
+        return 1.5m;
+    }
+
+    private decimal? ObterValorDaBase(VerbaEmCalculo verba, OcorrenciaDaVerba ocorrencia, out decimal? valorIntegral)
+    {
+        var periodo = new PeriodoDeApuracao(ocorrencia.DataInicial, ocorrencia.DataFinal);
         valorIntegral = null;
         switch (verba.Tipo)
         {
@@ -236,7 +368,7 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
             case TipoDaVerbaEnum.Reflexo:
             {
                 var integral = new AcumuladorDeIntegral();
-                var valor = ResolverBaseVerba(verba, periodo, integral);
+                var valor = ResolverBaseVerba(verba, ocorrencia, integral);
                 valorIntegral = integral.Valor;
                 return valor;
             }
@@ -246,9 +378,11 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
                 var integral = new AcumuladorDeIntegral();
                 decimal? baseTabelada = null;
                 if (verba.BaseTabelada is not null)
-                    baseTabelada = ResolverBaseTabelada(verba, verba.BaseTabelada, periodo, fasePago: false, integral);
+                    baseTabelada = ResolverBaseTabelada(verba, verba.BaseTabelada, periodo,
+                        ocorrencia.PeriodoAquisitivo, ocorrencia.FeriasIndenizadas,
+                        fasePago: false, integral, descontarAbonoNosDias: true);
                 var baseVerba = verba.BasesVerba.Count > 0
-                    ? ResolverBaseVerba(verba, periodo, integral)
+                    ? ResolverBaseVerba(verba, ocorrencia, integral)
                     : (verba.BaseTabelada is null ? 0m : (decimal?)null);
                 valorIntegral = integral.Valor;
                 return (baseVerba, baseTabelada) switch
@@ -263,7 +397,7 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
     }
 
     /// <summary>Acumulador do "valor integral" propagado pelos termos (parametro.valorIntegral).</summary>
-    private sealed class AcumuladorDeIntegral
+    internal sealed class AcumuladorDeIntegral
     {
         public decimal? Valor { get; private set; }
         public void Acumular(decimal? valor)
@@ -290,7 +424,9 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
         };
     }
 
-    private decimal? ResolverQuantidade(VerbaEmCalculo verba, PeriodoDeApuracao periodo, out decimal? valorIntegral)
+    private decimal? ResolverQuantidade(
+        VerbaEmCalculo verba, PeriodoDeApuracao periodo, PeriodoDeApuracao? periodoAquisitivo,
+        out decimal? valorIntegral)
     {
         valorIntegral = null;
         if (verba.Tipo == TipoDaVerbaEnum.Informada)
@@ -309,7 +445,7 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
             }
 
             case TipoDeQuantidadeEnum.Avos:
-                return ContarAvos(verba, periodo);
+                return ContarAvos(verba, periodo, periodoAquisitivo);
 
             case TipoDeQuantidadeEnum.Apurada:
                 return _contexto.QuantidadeDeDiasDoAvisoPrevio();
@@ -320,6 +456,17 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
         }
     }
 
+    private decimal ContarAvos(VerbaEmCalculo verba, PeriodoDeApuracao periodo, PeriodoDeApuracao? periodoAquisitivo)
+    {
+        return verba.OcorrenciaDePagamento switch
+        {
+            OcorrenciaDePagamentoEnum.Dezembro => ContarAvosDeDezembro(verba, periodo),
+            OcorrenciaDePagamentoEnum.PeriodoAquisitivo when periodoAquisitivo is { } aquisitivo =>
+                ContarAvosDoPeriodoAquisitivo(verba, aquisitivo),
+            _ => 0m,
+        };
+    }
+
     /// <summary>
     /// Avos do 13º: um por mês com pelo menos 15 dias (descontadas faltas não justificadas)
     /// na janela do ano da ocorrência, limitada pela admissão e pela demissão projetada
@@ -327,11 +474,8 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
     /// contrato para o ano seguinte, a ocorrência do dia da demissão conta os avos do
     /// período projetado (janela reiniciada em 1º de janeiro seguinte).
     /// </summary>
-    private decimal ContarAvos(VerbaEmCalculo verba, PeriodoDeApuracao periodo)
+    private decimal ContarAvosDeDezembro(VerbaEmCalculo verba, PeriodoDeApuracao periodo)
     {
-        if (verba.OcorrenciaDePagamento != OcorrenciaDePagamentoEnum.Dezembro)
-            throw new NotSupportedException("Avos por período aquisitivo (férias) serão implementados na etapa de Férias.");
-
         var ano = periodo.Inicio.Year;
         var inicioDaJanela = new DateOnly(ano, 1, 1);
         if (_contexto.LimitarAvosAoPeriodoDoCalculo)
@@ -352,9 +496,7 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
         var fimDaJanela = new DateOnly(ano, 12, 31);
         if (_contexto.DataDemissao is { } demissao)
         {
-            var demissaoProjetada = _contexto.ProjetaAvisoIndenizado
-                ? demissao.AddDays(_contexto.QuantidadeDeDiasDoAvisoPrevio())
-                : demissao;
+            var demissaoProjetada = _contexto.DataDemissaoProjetada!.Value;
             if (fimDaJanela > demissaoProjetada)
             {
                 fimDaJanela = demissaoProjetada;
@@ -370,10 +512,37 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
         var avos = 0;
         foreach (var mes in PeriodoDeApuracao.QuebrarEmMeses(inicioDaJanela, fimDaJanela))
         {
-            var dias = mes.Fim.Day - mes.Inicio.Day + 1 - _contexto.FaltasNaoJustificadas(mes);
+            var dias = mes.Fim.Day - mes.Inicio.Day + 1 - _contexto.ObterFaltasNaoJustificadas(mes);
             if (dias >= MinimoDeDiasParaUmAvo)
                 avos++;
         }
+        return avos;
+    }
+
+    /// <summary>
+    /// Avos do período aquisitivo (férias proporcionais): um por mês-aniversário completo
+    /// dentro do PA; o resto conta se tiver pelo menos 15 dias. Faltas não reduzem aqui.
+    /// </summary>
+    private decimal ContarAvosDoPeriodoAquisitivo(VerbaEmCalculo verba, PeriodoDeApuracao aquisitivo)
+    {
+        var dataDeCorte = verba.PeriodoInicial.AddYears(-1);
+        var avos = 0;
+        var mesesCompletos = 1;
+        var fimDoAvo = aquisitivo.Inicio.AddMonths(1).AddDays(-1);
+        while (aquisitivo.Fim > fimDoAvo)
+        {
+            if (!_contexto.LimitarAvosAoPeriodoDoCalculo || dataDeCorte <= fimDoAvo)
+                avos++;
+            fimDoAvo = aquisitivo.Inicio.AddMonths(++mesesCompletos).AddDays(-1);
+        }
+
+        var inicioDoUltimoAvo = aquisitivo.Inicio.AddMonths(mesesCompletos - 1);
+        var diasDoResto = aquisitivo.Fim.DayNumber - inicioDoUltimoAvo.DayNumber + 1;
+        var restoConta = _contexto.LimitarAvosAoPeriodoDoCalculo
+            ? dataDeCorte <= aquisitivo.Fim && diasDoResto >= MinimoDeDiasParaUmAvo
+            : diasDoResto >= MinimoDeDiasParaUmAvo;
+        if (restoConta)
+            avos++;
         return avos;
     }
 
@@ -392,7 +561,9 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
             periodo.Inicio, periodo.Fim, constante.Value, DiasParaExcluir(verba, periodo));
     }
 
-    private decimal? ResolverValorPago(VerbaEmCalculo verba, PeriodoDeApuracao periodo, out decimal? valorIntegral)
+    private decimal? ResolverValorPago(
+        VerbaEmCalculo verba, PeriodoDeApuracao periodo, PeriodoDeApuracao? periodoAquisitivo,
+        out decimal? valorIntegral)
     {
         valorIntegral = null;
         var pago = verba.ValorPago;
@@ -409,8 +580,11 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
         if (pago.BaseTabelada is null)
             return null;
 
+        // Na geração, o parâmetro do motor original ainda não carrega o flag de férias
+        // indenizadas — o pago calculado de férias usa "não indenizadas" aqui.
         var integral = new AcumuladorDeIntegral();
-        var valor = ResolverBaseTabelada(verba, pago.BaseTabelada, periodo, fasePago: true, integral);
+        var valor = ResolverBaseTabelada(verba, pago.BaseTabelada, periodo, periodoAquisitivo,
+            feriasIndenizadas: false, fasePago: true, integral, descontarAbonoNosDias: false);
         if (valor is null)
             return null;
 
@@ -420,12 +594,10 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
     }
 
     private decimal? ResolverBaseTabelada(
-        VerbaEmCalculo verba, TermoBaseTabelada termo, PeriodoDeApuracao periodo, bool fasePago,
-        AcumuladorDeIntegral integral)
+        VerbaEmCalculo verba, TermoBaseTabelada termo, PeriodoDeApuracao periodo,
+        PeriodoDeApuracao? periodoAquisitivo, bool feriasIndenizadas, bool fasePago,
+        AcumuladorDeIntegral integral, bool descontarAbonoNosDias)
     {
-        if (verba.Caracteristica == CaracteristicaDaVerbaEnum.Ferias)
-            throw new NotSupportedException("Base tabelada de férias será implementada na etapa de Férias.");
-
         decimal? valor = termo.Tipo switch
         {
             BaseDeCalculoDoPrincipalEnum.UltimaRemuneracao => _contexto.ValorUltimaRemuneracao,
@@ -437,15 +609,64 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
                     ?? throw new NotSupportedException("Configure ContextoDeVerbas.SalarioMinimoNaCompetencia."),
             _ => throw new NotSupportedException($"Base tabelada {termo.Tipo} (etapa futura)."),
         };
+        if (valor is not { } valorBase)
+            return null;
 
         var ehRemuneracaoDeReferencia = termo.Tipo is BaseDeCalculoDoPrincipalEnum.UltimaRemuneracao
             or BaseDeCalculoDoPrincipalEnum.MaiorRemuneracao;
-        if (valor is { } v && ehRemuneracaoDeReferencia && termo.AplicarProporcionalidade)
+
+        if (verba.Caracteristica == CaracteristicaDaVerbaEnum.Ferias &&
+            _contexto.RegimeDoContrato != RegimeDoContratoEnum.Intermitente)
         {
-            integral.Acumular(v);
-            valor = Proporcionalizacao.Proporcionalizar(
-                periodo.Inicio, periodo.Fim, v, DiasParaExcluir(verba, periodo));
+            return AplicarDesvioDeFerias(valorBase, periodo, periodoAquisitivo, feriasIndenizadas,
+                ehRemuneracaoDeReferencia, descontarAbonoNosDias);
         }
+
+        if (ehRemuneracaoDeReferencia && termo.AplicarProporcionalidade)
+        {
+            integral.Acumular(valorBase);
+            return Proporcionalizacao.Proporcionalizar(
+                periodo.Inicio, periodo.Fim, valorBase, DiasParaExcluir(verba, periodo));
+        }
+        return valorBase;
+    }
+
+    /// <summary>
+    /// Desvio de férias da base tabelada: na ocorrência de 1 dia da demissão multiplica
+    /// pelos dias devidos (prazo − gozos, menos o abono quando a base o desconta) ou pelo
+    /// prazo proporcional do art. 130; a remuneração de referência é dividida por 30.
+    /// No gozo normal, base = valor ÷ 30 × dias da ocorrência.
+    /// </summary>
+    private decimal AplicarDesvioDeFerias(
+        decimal valor, PeriodoDeApuracao periodo, PeriodoDeApuracao? periodoAquisitivo,
+        bool feriasIndenizadas, bool ehRemuneracaoDeReferencia, bool descontarAbonoNosDias)
+    {
+        var ocorrenciaDeUmDiaNaDemissao = periodo.Inicio == periodo.Fim &&
+            _contexto.DataDemissao is { } demissao && periodo.Inicio == demissao;
+
+        if (!ocorrenciaDeUmDiaNaDemissao)
+            return ehRemuneracaoDeReferencia ? valor / 30m * periodo.TotalDeDias : valor;
+
+        var ferias = periodoAquisitivo is { } aquisitivo
+            ? _contexto.ListaDeFerias.FirstOrDefault(f => f.PeriodoAquisitivo == aquisitivo)
+            : null;
+        if (ferias is not null)
+        {
+            if (feriasIndenizadas)
+            {
+                var dias = ferias.Prazo - ferias.PeriodosDeGozo.Sum(g => g.TotalDeDias);
+                if (descontarAbonoNosDias && ferias.Abono)
+                    dias -= ferias.QuantidadeDiasAbono;
+                valor *= dias;
+            }
+            if (ehRemuneracaoDeReferencia)
+                valor /= 30m;
+            return valor;
+        }
+
+        valor *= _contexto.PrazoDasFeriasProporcionais(periodoAquisitivo ?? periodo);
+        if (ehRemuneracaoDeReferencia)
+            valor /= 30m;
         return valor;
     }
 
@@ -501,8 +722,9 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
     // Base em outras verbas (principal e reflexo)
     // ------------------------------------------------------------------
 
-    private decimal ResolverBaseVerba(VerbaEmCalculo verba, PeriodoDeApuracao periodo, AcumuladorDeIntegral integral)
+    private decimal ResolverBaseVerba(VerbaEmCalculo verba, OcorrenciaDaVerba ocorrencia, AcumuladorDeIntegral integral)
     {
+        var periodo = new PeriodoDeApuracao(ocorrencia.DataInicial, ocorrencia.DataFinal);
         var valor = 0m;
         decimal? valorIntegral = verba.BasesVerba.Count > 0 ? 0m : null;
         foreach (var item in verba.BasesVerba)
@@ -513,7 +735,7 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
             decimal valorDaBase, valorDaBaseIntegral;
             if (verba.Tipo == TipoDaVerbaEnum.Reflexo)
             {
-                valorDaBase = valorDaBaseIntegral = ComportamentoDoReflexo.Resolver(_contexto, verba, item, periodo);
+                valorDaBase = valorDaBaseIntegral = ComportamentoDoReflexo.Resolver(_contexto, verba, item, ocorrencia);
             }
             else
             {
@@ -535,7 +757,7 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
         VerbaEmCalculo verba, ItemBaseVerba item, PeriodoDeApuracao periodo, out decimal valorIntegralDaBase)
     {
         if (verba.Caracteristica == CaracteristicaDaVerbaEnum.Ferias)
-            throw new NotSupportedException("Base em verba para férias será implementada na etapa de Férias.");
+            throw new NotSupportedException("Base em verba para férias principal calculada (etapa futura).");
 
         var origem = item.Verba;
         var valorDaBase = 0m;
@@ -545,7 +767,7 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
         foreach (var mes in PeriodoDeApuracao.QuebrarEmMeses(periodo.Inicio, periodo.Fim))
         {
             var (valorDoPeriodo, valorDoPeriodoIntegral, diasCobertos, diasParaExcluir) =
-                SomarOcorrenciasDoMes(origem, mes.Fim, origem.GerarPrincipal);
+                SomarOcorrenciasDoMes(_contexto, origem, mes.Fim, origem.GerarPrincipal);
 
             if (diasCobertos == 0)
             {
@@ -572,7 +794,7 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
     /// com os dias cobertos, o primeiro valor integral não nulo e os dias a excluir da origem.
     /// </summary>
     internal static (decimal Valor, decimal? ValorIntegral, int DiasCobertos, int DiasParaExcluir)
-        SomarOcorrenciasDoMes(VerbaEmCalculo origem, DateOnly mes, TipoDeGeracaoEnum geracao)
+        SomarOcorrenciasDoMes(ContextoDeVerbas contexto, VerbaEmCalculo origem, DateOnly mes, TipoDeGeracaoEnum geracao)
     {
         var valor = 0m;
         decimal? valorIntegral = null;
@@ -584,7 +806,7 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
             if (!ocorrencia.Ativo)
                 continue;
             MarcarDias(diasCobertos, ocorrencia);
-            diasParaExcluir += DiasParaExcluirDaOrigem(origem, ocorrencia);
+            diasParaExcluir += DiasParaExcluirDaOrigem(contexto, origem, ocorrencia);
             var (v, vi) = geracao == TipoDeGeracaoEnum.Devido
                 ? (ocorrencia.Devido ?? 0m, ocorrencia.DevidoIntegral)
                 : (ocorrencia.Diferenca, (decimal?)ocorrencia.DiferencaIntegral);
@@ -611,14 +833,21 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
         return Proporcionalizacao.Integralizar(competencia, competencia.AddDays(diasCobertos - 1), valor, exclusoes);
     }
 
-    /// <summary>Dias a excluir de uma ocorrência conforme os flags da verba de ORIGEM.</summary>
-    internal static int DiasParaExcluirDaOrigem(VerbaEmCalculo origem, OcorrenciaDaVerba ocorrencia)
+    /// <summary>
+    /// Dias a excluir de uma ocorrência conforme os flags da verba de ORIGEM
+    /// (a regra do 31 é incondicional no motor: mês de 31 dias coberto conta 1 exclusão).
+    /// </summary>
+    internal static int DiasParaExcluirDaOrigem(ContextoDeVerbas contexto, VerbaEmCalculo origem, OcorrenciaDaVerba ocorrencia)
     {
-        // Nesta etapa os provedores de férias/faltas retornam zero; a regra do 31 ainda
-        // se aplica quando algum flag de exclusão está ligado (paridade com o motor).
         var periodo = new PeriodoDeApuracao(ocorrencia.DataInicial, ocorrencia.DataFinal);
         var exclusoes = 0;
+        if (origem.ExcluirFeriasGozadas)
+            exclusoes += contexto.ObterDiasFerias(periodo);
         exclusoes = Proporcionalizacao.AjustarExclusoesParaMesDe31(periodo.TotalDeDias, exclusoes);
+        if (origem.ExcluirFaltaJustificada)
+            exclusoes += contexto.ObterFaltasJustificadas(periodo);
+        if (origem.ExcluirFaltaNaoJustificada)
+            exclusoes += contexto.ObterFaltasNaoJustificadas(periodo);
         return exclusoes;
     }
 
@@ -634,12 +863,12 @@ public sealed class MotorDeVerbas(ContextoDeVerbas contexto)
     {
         var exclusoes = 0;
         if (verba.ExcluirFeriasGozadas)
-            exclusoes += _contexto.DiasDeFeriasGozadas(periodo);
+            exclusoes += _contexto.ObterDiasFerias(periodo);
         exclusoes = Proporcionalizacao.AjustarExclusoesParaMesDe31(periodo.TotalDeDias, exclusoes);
         if (verba.ExcluirFaltaJustificada)
-            exclusoes += _contexto.FaltasJustificadas(periodo);
+            exclusoes += _contexto.ObterFaltasJustificadas(periodo);
         if (verba.ExcluirFaltaNaoJustificada)
-            exclusoes += _contexto.FaltasNaoJustificadas(periodo);
+            exclusoes += _contexto.ObterFaltasNaoJustificadas(periodo);
         return exclusoes;
     }
 

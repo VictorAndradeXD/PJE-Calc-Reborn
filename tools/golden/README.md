@@ -36,6 +36,7 @@ javac --release 8 -cp "$CP" -d out CAMINHO/GoldenGenXxx.java
 | GoldenGenIrpf.java | tabela progressiva + RRA | `TabelaIrpf`/`OcorrenciaDeIrpf` via JDBC |
 | GoldenGenVerbas.java | proporcionalizar/integralizar + fórmula da ocorrência | POJOs puros (setar campos `*Integral` evita lazy-load de repositório) |
 | GoldenGenVerbasPipeline.java | pipeline completo: geração MENSAL/DESLIGAMENTO/DEZEMBRO+avos, termos, liquidação, reflexo VALOR_MENSAL e médias MV (17 cenários) | modo teste + stubs por herança: repositórios (`Utils.adicionarRepositorioParaTeste`), `ServicoDeCalculo` (subclasse), máquina injetada via `setMaquinaDeCalculorencias`, tabela de correção via `setTabelaDeCorrecaoMonetariaTrabalhista` (construtor vazio + override de `obterValorAcumuladoDoIndice`) |
+| GoldenGenFeriasPipeline.java | férias: tabela do art. 130, breakInYears, salário em férias, pipeline PERIODO_AQUISITIVO (gozos/dobra/saldo/indenizadas/fracionário/abono/prescrição), faltas nos provedores, reflexos com destino férias | mesma receita do VerbasPipeline + `Ferias`/`Falta` à mão; gotcha: `obterDiasFerias` passa por `LazyloadSecure` — envolver `listaDeFerias` em `new PersistentSet(null, set)` quando alguma verba excluir férias gozadas |
 
 ## Exportação de dados de referência (CSV)
 `export_refdata.sql` (índices/juros/salário mínimo — substituir OUTDIR),

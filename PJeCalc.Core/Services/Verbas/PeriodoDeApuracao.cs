@@ -49,4 +49,58 @@ public readonly record struct PeriodoDeApuracao(DateOnly Inicio, DateOnly Fim)
             anos++;
         return anos;
     }
+
+    /// <summary>
+    /// Quebra em períodos anuais de aniversário a aniversário
+    /// (<c>[início + n anos, início + (n+1) anos − 1 dia]</c>, com 29/02 saturando em
+    /// 28/02). O resto parcial ao final só entra com <paramref name="incluirResto"/> —
+    /// na geração de períodos aquisitivos ele é descartado (vira férias proporcionais).
+    /// </summary>
+    public static List<PeriodoDeApuracao> QuebrarEmAnos(DateOnly inicio, DateOnly fim, bool incluirResto)
+    {
+        var periodos = new List<PeriodoDeApuracao>();
+        var anos = 1;
+        var atual = inicio;
+        while (atual <= fim)
+        {
+            var fimDoAno = inicio.AddYears(anos++).AddDays(-1);
+            if (fim < fimDoAno)
+            {
+                if (incluirResto)
+                    periodos.Add(new PeriodoDeApuracao(atual, fim));
+            }
+            else
+            {
+                periodos.Add(new PeriodoDeApuracao(atual, fimDoAno));
+            }
+            atual = fimDoAno.AddDays(1);
+        }
+        return periodos;
+    }
+
+    /// <summary>Interseção inclusiva com outro período, ou nula quando disjuntos.</summary>
+    public PeriodoDeApuracao? Interseccao(PeriodoDeApuracao outro)
+    {
+        var inicio = Inicio > outro.Inicio ? Inicio : outro.Inicio;
+        var fim = Fim < outro.Fim ? Fim : outro.Fim;
+        return inicio <= fim ? new PeriodoDeApuracao(inicio, fim) : null;
+    }
+
+    /// <summary>Dias de <paramref name="outro"/> contidos neste período (inclusivo).</summary>
+    public int DiasCoincidentesCom(PeriodoDeApuracao outro) =>
+        Interseccao(outro)?.TotalDeDias ?? 0;
+
+    /// <summary>Este período sobrepõe o outro em pelo menos um dia?</summary>
+    public bool CoincideCom(PeriodoDeApuracao outro) => Interseccao(outro) is not null;
+
+    /// <summary>
+    /// Divide o período na data (corte inclusivo): <c>[início, data]</c> e
+    /// <c>[data+1, fim]</c>. Não divide quando a data está fora do intervalo.
+    /// </summary>
+    public List<PeriodoDeApuracao> DividirNaData(DateOnly data)
+    {
+        if (Fim <= data || data < Inicio)
+            return [this];
+        return [new PeriodoDeApuracao(Inicio, data), new PeriodoDeApuracao(data.AddDays(1), Fim)];
+    }
 }
