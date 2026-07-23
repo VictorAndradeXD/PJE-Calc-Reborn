@@ -29,4 +29,34 @@ public static class ConversaoDeMoedas
     /// </summary>
     public static decimal DivisorNaCompetencia(DateOnly competencia) =>
         DivisoresPorCompetencia.TryGetValue(competencia, out var divisor) ? divisor : 1m;
+
+    /// <summary>
+    /// A última competência que marca troca de moeda dentro de [início, fim], ou nula
+    /// (sempre nula na era do Real). Usada pelas médias de reflexo.
+    /// </summary>
+    public static DateOnly? UltimaCompetenciaDeConversaoEntre(DateOnly inicio, DateOnly fim)
+    {
+        DateOnly? ultima = null;
+        foreach (var competencia in DivisoresPorCompetencia.Keys)
+        {
+            if (competencia >= inicio && competencia <= fim && (ultima is null || competencia > ultima))
+                ultima = competencia;
+        }
+        return ultima;
+    }
+
+    /// <summary>
+    /// Produto dos divisores das trocas de moeda no intervalo (após, até] — nulo quando
+    /// não há troca. Usado para trazer uma média antiga à moeda da data do reflexo.
+    /// </summary>
+    public static decimal? ProdutoDosDivisoresEntre(DateOnly aposExclusivo, DateOnly ateInclusivo)
+    {
+        decimal? produto = null;
+        foreach (var (competencia, divisor) in DivisoresPorCompetencia)
+        {
+            if (competencia > aposExclusivo && competencia <= ateInclusivo)
+                produto = (produto ?? 1m) * divisor;
+        }
+        return produto;
+    }
 }
