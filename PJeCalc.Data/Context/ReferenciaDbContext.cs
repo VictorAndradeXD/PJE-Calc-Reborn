@@ -32,6 +32,9 @@ public class ReferenciaDbContext : DbContext
     // Feriados do calendário trabalhista (TBFERIADO/TBEXCECAOFERIADO).
     public DbSet<FeriadoReferencia> Feriados => Set<FeriadoReferencia>();
 
+    // Parâmetros tabelados das custas (TBPARAMETROCUSTAS).
+    public DbSet<ParametroDeCustasReferencia> ParametrosDeCustas => Set<ParametroDeCustasReferencia>();
+
     public ReferenciaDbContext(DbContextOptions<ReferenciaDbContext> options) : base(options) { }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

@@ -36,7 +36,7 @@ var total = 0;
 // Aceita os CSVs soltos no diretório ou organizados nas subpastas das fixtures.
 string Achar(string arquivo)
 {
-    foreach (var subpasta in new[] { "", "Indices", "Juros", "Feriados" })
+    foreach (var subpasta in new[] { "", "Indices", "Juros", "Feriados", "Custas" })
     {
         var candidato = Path.Combine(dirCsv, subpasta, arquivo);
         if (File.Exists(candidato))
@@ -144,6 +144,42 @@ void ImportarFeriados(string arquivoFeriados, string arquivoExcecoes)
     Console.WriteLine($"  {arquivoFeriados,-20} {feriados.Count,6} feriados ({feriados.Sum(f => f.Excecoes.Count)} datas de móveis)");
 }
 
+// Parâmetros das custas: inicioVigencia,fimVigencia,pisoConhecimento,tetoLiquidacao,
+// tetoAutos + os 9 valores fixos por tipo de ato.
+void ImportarParametrosDeCustas(string arquivo)
+{
+    var itens = new List<ParametroDeCustasReferencia>();
+    foreach (var linha in File.ReadLines(Achar(arquivo)).Skip(1))
+    {
+        if (string.IsNullOrWhiteSpace(linha)) continue;
+        var p = linha.Split(',');
+        decimal V(int i) => decimal.Parse(Limpar(p[i]), NumberStyles.Float, CultureInfo.InvariantCulture);
+        itens.Add(new ParametroDeCustasReferencia
+        {
+            InicioVigencia = DateTime.ParseExact(Limpar(p[0]), "yyyy-MM-dd", CultureInfo.InvariantCulture),
+            FimVigencia = Limpar(p[1]) is { Length: > 0 } fim
+                ? DateTime.ParseExact(fim, "yyyy-MM-dd", CultureInfo.InvariantCulture)
+                : null,
+            PisoConhecimento = V(2),
+            TetoLiquidacao = V(3),
+            TetoAutos = V(4),
+            AtosUrbanos = V(5),
+            AtosRurais = V(6),
+            AgravoInstrumento = V(7),
+            AgravoPeticao = V(8),
+            ImpugnacaoSentenca = V(9),
+            EmbargosArrematacao = V(10),
+            EmbargosExecucao = V(11),
+            EmbargosTerceiros = V(12),
+            RecursoRevista = V(13),
+        });
+    }
+    db.AddRange(itens);
+    db.SaveChanges();
+    total += itens.Count;
+    Console.WriteLine($"  {arquivo,-20} {itens.Count,6} parâmetros de custas");
+}
+
 static string Limpar(string campo) => campo.Trim().Trim('"');
 
 Console.WriteLine($"Construindo {saida}");
@@ -157,6 +193,7 @@ Importar("tr.csv",           () => new IndiceTR(),          (e, c, t) => { e.Com
 Importar("selicfazenda.csv", () => new IndiceSelicFazenda(),(e, c, t) => { e.Competencia = c; e.Taxa = t; });
 ImportarJurosPadrao("jurospadrao.csv");
 ImportarFeriados("feriado.csv", "feriado_excecao.csv");
+ImportarParametrosDeCustas("parametro_custas.csv");
 
 Console.WriteLine($"Concluído: {total} registros em {saida}");
 return 0;
