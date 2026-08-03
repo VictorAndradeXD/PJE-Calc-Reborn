@@ -96,6 +96,13 @@ public sealed class VerbaEmCalculo
     public bool AplicarProporcionalidade { get; set; }
 
     public bool ZeraValorNegativo { get; set; } = true;
+
+    /// <summary>Se a verba compõe o principal (entra no capital dos juros de mora e no bruto).</summary>
+    public bool ComporPrincipal { get; set; } = true;
+
+    /// <summary>Marco inicial dos juros de mora das ocorrências desta verba.</summary>
+    public JurosDoAjuizamentoEnum JurosDoAjuizamento { get; set; } = JurosDoAjuizamentoEnum.OcorrenciasVencidas;
+
     public bool ExcluirFeriasGozadas { get; set; }
     public bool ExcluirFaltaJustificada { get; set; }
     public bool ExcluirFaltaNaoJustificada { get; set; }
