@@ -1,0 +1,10 @@
+cenario;chave;valor
+APURACAO;totalCorrigido;5375.00
+APURACAO;totalJuros;1089.96
+MULTAS;reclamanteReclamado;646.50
+MULTAS;reclamadoReclamante;500.00
+BRUTO;brutoDevidoAoReclamante;6611.46
+HONORARIO;valorTotal;661.15
+HONORARIO;devidoPeloReclamado;661.15
+CUSTAS;base;6611.46
+CUSTAS;consolidado;132.2292
