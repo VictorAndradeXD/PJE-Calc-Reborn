@@ -38,6 +38,9 @@ public class ReferenciaDbContext : DbContext
     // Tabela do salário-família (TBTABELASALARIOFAMILIA).
     public DbSet<SalarioFamiliaReferencia> SalarioFamilia => Set<SalarioFamiliaReferencia>();
 
+    // Tabela do seguro-desemprego (TBTABELASEGURODESEMPREGO).
+    public DbSet<SeguroDesempregoReferencia> SeguroDesemprego => Set<SeguroDesempregoReferencia>();
+
     public ReferenciaDbContext(DbContextOptions<ReferenciaDbContext> options) : base(options) { }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
