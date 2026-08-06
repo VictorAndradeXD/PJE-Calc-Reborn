@@ -7,9 +7,34 @@ using PJeCalc.Core.Services.Verbas;
 namespace PJeCalc.Core.Services;
 
 /// <summary>
+/// Acessórios que compõem o principal (bruto devido ao reclamante), já apurados nos seus módulos.
+/// Cada parcela entra arredondada a 2 casas, como no acumulador do original.
+/// </summary>
+public sealed record ComponentesDoPrincipal
+{
+    /// <summary>FGTS devido corrigido à liquidação (quando compõe o principal).</summary>
+    public decimal FgtsCorrigidoNaLiquidacao { get; init; }
+
+    /// <summary>Multa do FGTS (40%/20%).</summary>
+    public decimal MultaDoFgts { get; init; }
+
+    /// <summary>Multa do art. 467 da CLT sobre o FGTS.</summary>
+    public decimal MultaDoArtigo467 { get; init; }
+
+    /// <summary>Depósitos/saques a deduzir do principal (quando "deduzir do FGTS").</summary>
+    public decimal DepositadoOuSacadoDeduzido { get; init; }
+
+    /// <summary>Salário-família (quando apurado e compõe o principal).</summary>
+    public decimal SalarioFamilia { get; init; }
+
+    /// <summary>Seguro-desemprego (quando apurado e compõe o principal).</summary>
+    public decimal SeguroDesemprego { get; init; }
+}
+
+/// <summary>
 /// Configuração do cálculo: os parâmetros de cada módulo acessório e as bases auxiliares que
 /// vêm de módulos correlatos já validados (correção do valor da causa, descontos de INSS/
-/// previdência privada — estes ainda em 0 no caminho mínimo).
+/// previdência privada).
 /// </summary>
 public sealed record ConfiguracaoDoCalculo
 {
@@ -17,6 +42,16 @@ public sealed record ConfiguracaoDoCalculo
     public IReadOnlyList<ParametrosDaMulta> Multas { get; init; } = [];
     public IReadOnlyList<ParametrosDoHonorario> Honorarios { get; init; } = [];
     public ParametrosDeCustas? Custas { get; init; }
+
+    /// <summary>Acessórios (FGTS/salário-família/seguro-desemprego) que compõem o principal.</summary>
+    public ComponentesDoPrincipal? PrincipalAdicional { get; init; }
+
+    /// <summary>
+    /// Débitos do reclamado que entram na base das custas (BROR) além dos honorários e multas de
+    /// terceiro já somados aqui: INSS patronal/segurado, contribuição social do FGTS, IRPF cobrado
+    /// do reclamado etc. — apurados nos seus módulos.
+    /// </summary>
+    public decimal OutrosDebitosDoReclamado { get; init; }
 
     /// <summary>Valor da causa já corrigido do ajuizamento à liquidação (base de multa "valor da causa").</summary>
     public decimal ValorDaCausaCorrigido { get; init; }
@@ -79,10 +114,19 @@ public static class MotorDeCalculo
             multas.Select(m => (m.Parametros.CredorDevedor, m.Resultado.ValorTotal)));
 
         // Bruto: cada parcela arredondada a 2 casas antes de somar, como no acumulador do original.
-        var bruto = Arredondar(apuracao.TotalDeValorCorrigido)
-            + Arredondar(apuracao.TotalDeJuros)
-            + Arredondar(totaisDeMultas.ReclamanteReclamado)
-            - Arredondar(totaisDeMultas.ReclamadoReclamante);
+        var bruto = Arredondar(apuracao.TotalDeValorCorrigido) + Arredondar(apuracao.TotalDeJuros);
+
+        if (config.PrincipalAdicional is { } componentes)
+        {
+            bruto += Arredondar(componentes.FgtsCorrigidoNaLiquidacao)
+                + Arredondar(componentes.MultaDoFgts)
+                + Arredondar(componentes.MultaDoArtigo467)
+                - Arredondar(componentes.DepositadoOuSacadoDeduzido)
+                + Arredondar(componentes.SalarioFamilia)
+                + Arredondar(componentes.SeguroDesemprego);
+        }
+
+        bruto += Arredondar(totaisDeMultas.ReclamanteReclamado) - Arredondar(totaisDeMultas.ReclamadoReclamante);
 
         var basesDoHonorario = new BasesDoHonorario
         {
@@ -101,7 +145,9 @@ public static class MotorDeCalculo
             var basesDasCustas = new BasesDasCustas
             {
                 BrutoDevidoAoReclamante = bruto,
-                OutrosDebitosReclamado = totaisDeHonorarios.DevidoPeloReclamado + totaisDeMultas.TerceiroReclamado,
+                OutrosDebitosReclamado = totaisDeHonorarios.DevidoPeloReclamado
+                    + totaisDeMultas.TerceiroReclamado
+                    + config.OutrosDebitosDoReclamado,
             };
             custas = ApuracaoDeCustas.Calcular(configCustas, basesDasCustas);
         }
