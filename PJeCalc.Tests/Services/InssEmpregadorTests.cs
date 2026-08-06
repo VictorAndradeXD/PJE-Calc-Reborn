@@ -30,7 +30,7 @@ public sealed class InssEmpregadorTests
     [Fact]
     public void Cotas_sem_teto_incidem_empresa_no_total_e_devido_nas_verbas()
     {
-        var cotas = ApuracaoDoInssEmpregador.Calcular(baseTotal: 10000m, baseVerbas: 3000m, Padrao);
+        var cotas = ApuracaoDoInssEmpregador.Calcular(baseHistorico: 10000m, baseVerbas: 3000m, Padrao);
 
         Assert.Equal(2000m, cotas.EmpresaSobreBaseTotal); // 10000 × 20%
         Assert.Equal(600m, cotas.EmpresaDevida);          // 3000 × 20% (sem teto)

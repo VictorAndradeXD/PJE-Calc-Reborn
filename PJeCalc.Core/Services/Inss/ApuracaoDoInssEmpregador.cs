@@ -34,11 +34,10 @@ public sealed record CotasDoEmpregador(
 /// <summary>
 /// Apuração das cotas patronais do INSS sobre os salários devidos, numa competência.
 ///
-/// <para>A empresa incide sobre a base total (o histórico salarial, já recolhido, mais as
-/// verbas da ação), respeitando o teto quando houver; o valor <b>devido</b> na ação recai sobre
-/// a parcela das verbas — limitado ao que resta do teto após o histórico. SAT e terceiros
-/// incidem apenas sobre a base das verbas. No Simples Nacional a contribuição patronal é
-/// substituída, então todas as cotas zeram.</para>
+/// <para>A cota da empresa sobre o histórico já recolhido (respeitando o teto) serve de
+/// referência; o valor <b>devido</b> na ação recai sobre a parcela das verbas — limitado ao que
+/// resta do teto após o histórico. SAT e terceiros incidem apenas sobre a base das verbas. No
+/// Simples Nacional a contribuição patronal é substituída, então todas as cotas zeram.</para>
 ///
 /// <para>Fórmulas transcritas de <c>MaquinaDeCalculoDoInss.liquidarInssSobreSalariosDevidos</c>
 /// (a máquina do original é ampla demais para ser dirigida sem toda a infraestrutura; a base por
@@ -47,13 +46,13 @@ public sealed record CotasDoEmpregador(
 /// </summary>
 public static class ApuracaoDoInssEmpregador
 {
-    /// <param name="baseTotal">Base total da competência: histórico salarial (já recolhido) + verbas.</param>
+    /// <param name="baseHistorico">Base do histórico salarial já recolhido (a competência-referência).</param>
     /// <param name="baseVerbas">Parcela da base vinda das verbas (o que se cobra na ação).</param>
     /// <param name="aliquotas">Alíquotas patronais vigentes na competência.</param>
     /// <param name="tetoEmpresa">Teto da contribuição patronal da empresa; nulo quando não há teto.</param>
     /// <param name="aplicarSimples">Simples Nacional: zera toda a contribuição patronal.</param>
     public static CotasDoEmpregador Calcular(
-        decimal baseTotal,
+        decimal baseHistorico,
         decimal baseVerbas,
         AliquotasDoEmpregador aliquotas,
         decimal? tetoEmpresa = null,
@@ -64,7 +63,7 @@ public static class ApuracaoDoInssEmpregador
         if (aplicarSimples)
             return new CotasDoEmpregador(0m, 0m, 0m, 0m);
 
-        var empresaSobreBaseTotal = baseTotal * (aliquotas.Empresa / 100m);
+        var empresaSobreBaseTotal = baseHistorico * (aliquotas.Empresa / 100m);
         if (tetoEmpresa is { } teto && empresaSobreBaseTotal > teto)
             empresaSobreBaseTotal = teto;
 
