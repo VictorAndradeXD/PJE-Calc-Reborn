@@ -35,6 +35,9 @@ public class ReferenciaDbContext : DbContext
     // Parâmetros tabelados das custas (TBPARAMETROCUSTAS).
     public DbSet<ParametroDeCustasReferencia> ParametrosDeCustas => Set<ParametroDeCustasReferencia>();
 
+    // Tabela do salário-família (TBTABELASALARIOFAMILIA).
+    public DbSet<SalarioFamiliaReferencia> SalarioFamilia => Set<SalarioFamiliaReferencia>();
+
     public ReferenciaDbContext(DbContextOptions<ReferenciaDbContext> options) : base(options) { }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

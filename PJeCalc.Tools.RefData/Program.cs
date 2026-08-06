@@ -36,7 +36,7 @@ var total = 0;
 // Aceita os CSVs soltos no diretório ou organizados nas subpastas das fixtures.
 string Achar(string arquivo)
 {
-    foreach (var subpasta in new[] { "", "Indices", "Juros", "Feriados", "Custas" })
+    foreach (var subpasta in new[] { "", "Indices", "Juros", "Feriados", "Custas", "SalarioFamilia" })
     {
         var candidato = Path.Combine(dirCsv, subpasta, arquivo);
         if (File.Exists(candidato))
@@ -180,6 +180,33 @@ void ImportarParametrosDeCustas(string arquivo)
     Console.WriteLine($"  {arquivo,-20} {itens.Count,6} parâmetros de custas");
 }
 
+// Tabela do salário-família: competencia,ini1,fim1,cota1,ini2,fim2,cota2 (ini* não usados).
+void ImportarSalarioFamilia(string arquivo)
+{
+    var itens = new List<SalarioFamiliaReferencia>();
+    foreach (var linha in File.ReadLines(Achar(arquivo)).Skip(1))
+    {
+        if (string.IsNullOrWhiteSpace(linha)) continue;
+        var p = linha.Split(',');
+        decimal? Opcional(int i) => string.IsNullOrWhiteSpace(Limpar(p[i]))
+            ? null
+            : decimal.Parse(Limpar(p[i]), NumberStyles.Float, CultureInfo.InvariantCulture);
+        decimal Valor(int i) => Opcional(i) ?? 0m;
+        itens.Add(new SalarioFamiliaReferencia
+        {
+            Competencia = DateTime.ParseExact(Limpar(p[0]), "yyyy-MM-dd", CultureInfo.InvariantCulture),
+            FinalFaixa1 = Opcional(2),
+            CotaFaixa1 = Valor(3),
+            FinalFaixa2 = Opcional(5),
+            CotaFaixa2 = Valor(6),
+        });
+    }
+    db.AddRange(itens);
+    db.SaveChanges();
+    total += itens.Count;
+    Console.WriteLine($"  {arquivo,-20} {itens.Count,6} competências de salário-família");
+}
+
 static string Limpar(string campo) => campo.Trim().Trim('"');
 
 Console.WriteLine($"Construindo {saida}");
@@ -194,6 +221,7 @@ Importar("selicfazenda.csv", () => new IndiceSelicFazenda(),(e, c, t) => { e.Com
 ImportarJurosPadrao("jurospadrao.csv");
 ImportarFeriados("feriado.csv", "feriado_excecao.csv");
 ImportarParametrosDeCustas("parametro_custas.csv");
+ImportarSalarioFamilia("salario_familia.csv");
 
 Console.WriteLine($"Concluído: {total} registros em {saida}");
 return 0;
