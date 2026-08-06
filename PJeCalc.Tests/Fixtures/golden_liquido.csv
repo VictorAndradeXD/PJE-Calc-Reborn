@@ -1,0 +1,4 @@
+cenario;chave;valor
+SEM_DEDUCAO;creditoVerbas;7700.00
+SEM_DEDUCAO;creditoFgts;4200.00
+COM_DEDUCAO_FGTS;creditoFgts;1700.00
