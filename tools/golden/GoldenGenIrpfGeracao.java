@@ -4,6 +4,8 @@ import br.jus.trt8.pjecalc.negocio.dominio.calculo.Calculo;
 import br.jus.trt8.pjecalc.negocio.dominio.calculo.irpf.Irpf;
 import br.jus.trt8.pjecalc.negocio.dominio.calculo.irpf.MaquinaDeCalculoDeIrpf;
 import br.jus.trt8.pjecalc.negocio.dominio.calculo.irpf.OcorrenciaDeIrpf;
+import br.jus.trt8.pjecalc.negocio.dominio.calculo.pensaoalimenticia.PensaoAlimenticia;
+import br.jus.trt8.pjecalc.negocio.dominio.calculo.previdenciaprivada.PrevidenciaPrivada;
 import br.jus.trt8.pjecalc.negocio.dominio.irpf.RepositorioDeTabelaIrpf;
 import br.jus.trt8.pjecalc.negocio.dominio.irpf.TabelaIrpf;
 import br.jus.trt8.pjecalc.negocio.dominio.irpf.faixas.PrimeiraFaixaFiscal;
@@ -70,6 +72,10 @@ public class GoldenGenIrpfGeracao {
         BigDecimal jurosDecimo = BigDecimal.ZERO;
         BigDecimal jurosFerias = BigDecimal.ZERO;
         BigDecimal jurosDemais = BigDecimal.ZERO;
+        BigDecimal prevTotal = BigDecimal.ZERO;
+        BigDecimal pensaoTributavel = BigDecimal.ZERO;
+        BigDecimal honorariosDevidos = BigDecimal.ZERO;
+        BigDecimal bruto = BigDecimal.ZERO;
 
         CalcStub(Date liquidacao) { this.liquidacao = liquidacao; }
 
@@ -79,6 +85,18 @@ public class GoldenGenIrpfGeracao {
         @Override public BigDecimal getTotalDeJurosDaApuracaoDeJurosParaIrpfDecimoTerceiro() { return jurosDecimo; }
         @Override public BigDecimal getTotalDeJurosDaApuracaoDeJurosParaIrpfFerias() { return jurosFerias; }
         @Override public BigDecimal getTotalDeJurosDaApuracaoDeJurosParaIrpfDemaisVerbas() { return jurosDemais; }
+        @Override public BigDecimal getValorTotalHonorariosDevidosPeloReclamante() { return honorariosDevidos; }
+        @Override public BigDecimal calcularBrutoDevidoAoReclamante() { return bruto; }
+        @Override public PrevidenciaPrivada getPrevidenciaPrivada() {
+            return new PrevidenciaPrivada() {
+                @Override public BigDecimal getTotalDoDevidoCorrigido() { return prevTotal; }
+            };
+        }
+        @Override public PensaoAlimenticia getPensaoAlimenticiaDoCalculo() {
+            return new PensaoAlimenticia() {
+                @Override public BigDecimal getValorDevidoSomenteSobreVerbasTributaveis() { return pensaoTributavel; }
+            };
+        }
     }
 
     static VerbaDeCalculo verba(Calculo calc, CaracteristicaDaVerbaEnum carac, String dataInicial, String devido) throws Exception {
@@ -155,6 +173,18 @@ public class GoldenGenIrpfGeracao {
             row(cenario, t + ".faixaFinal", o.getValorFinalFaixa());
         }
     }
+
+    // Emite, por tipo de ocorrência, o rateio das deduções (prev + pensão + honorários) na base.
+    static void emitirDeducoes(String cenario, Irpf irpf) {
+        List<OcorrenciaDeIrpf> ocorrencias = new ArrayList<OcorrenciaDeIrpf>(irpf.getOcorrencias());
+        for (OcorrenciaDeIrpf o : ocorrencias) {
+            BigDecimal rateio = Utils.somar(zero(o.getValorPrevidenciaPrivada()), zero(o.getValorPensaoAlimenticia()));
+            rateio = Utils.somar(rateio, zero(o.getValorHonorarios()));
+            row(cenario, o.getTipo().name() + ".deducoesRateadas", rateio);
+        }
+    }
+
+    static BigDecimal zero(BigDecimal v) { return v == null ? BigDecimal.ZERO : v; }
 
     static void row(String c, String k, BigDecimal v) {
         System.out.println(c + ";" + k + ";" + p(v));
@@ -237,6 +267,24 @@ public class GoldenGenIrpfGeracao {
                 Irpf irpf = montarIrpf(calc);
                 new MaquinaDeCalculoDeIrpf(irpf).liquidar();
                 emitir("B3_COMPETENCIA_CORRENTE", irpf);
+            }
+            // C1: regime de caixa, deduções prev/pensão/honorários LIGADAS -> rateio por balde.
+            {
+                CalcStub calc = new CalcStub(d("2024-02-10"));
+                calc.prevTotal = b("500.00");
+                calc.pensaoTributavel = b("300.00");
+                calc.honorariosDevidos = b("400.00");
+                calc.bruto = b("10000.00");
+                calc.ativas.add(verba(calc, CaracteristicaDaVerbaEnum.FERIAS, "2024-01-05", "5000.00"));
+                calc.ativas.add(verba(calc, CaracteristicaDaVerbaEnum.DECIMO_TERCEIRO_SALARIO, "2024-01-05", "3000.00"));
+                calc.ativas.add(verba(calc, CaracteristicaDaVerbaEnum.COMUM, "2024-01-05", "4000.00"));
+                Irpf irpf = montarIrpf(calc);
+                irpf.setRegimeDeCaixa(Boolean.TRUE);
+                irpf.setDeduzirPrevidenciaPrivada(Boolean.TRUE);
+                irpf.setDeduzirPensaoAlimenticia(Boolean.TRUE);
+                irpf.setDeduzirHonorariosDevidosPeloReclamante(Boolean.TRUE);
+                new MaquinaDeCalculoDeIrpf(irpf).liquidar();
+                emitirDeducoes("C1_CAIXA_DEDUCOES", irpf);
             }
         }
     }

@@ -111,7 +111,7 @@ public static class MotorDeCalculo
         };
         var multas = config.Multas.Select(p => (Parametros: p, Resultado: ApuracaoDeMulta.Calcular(p, basesDaMulta))).ToList();
         var totaisDeMultas = TotalizadorDeMulta.Calcular(
-            multas.Select(m => (m.Parametros.CredorDevedor, m.Resultado.ValorTotal)));
+            multas.Select(m => (m.Parametros.CredorDevedor, m.Parametros.Cobranca, m.Resultado.ValorTotal)));
 
         // Bruto: cada parcela arredondada a 2 casas antes de somar, como no acumulador do original.
         var bruto = Arredondar(apuracao.TotalDeValorCorrigido) + Arredondar(apuracao.TotalDeJuros);

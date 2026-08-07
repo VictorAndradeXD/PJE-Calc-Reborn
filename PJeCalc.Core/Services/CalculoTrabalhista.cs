@@ -56,17 +56,12 @@ public sealed record AcessoriosDoCalculo
 }
 
 /// <summary>
-/// Descontos do reclamante que dependem de flags por parcela (não deriváveis dos totalizadores):
-/// multas contra o reclamante que descontam do crédito e custas do reclamante.
+/// Descontos do reclamante ainda não derivados dos módulos automaticamente. As multas que
+/// descontam do crédito já vêm do totalizador; resta as custas do reclamante (apuração própria,
+/// fora do caminho consolidado das custas do reclamado).
 /// </summary>
 public sealed record DescontosDiretosDoReclamante
 {
-    /// <summary>Multas reclamado→reclamante marcadas para descontar do crédito.</summary>
-    public decimal MultasReclamadoReclamanteDescontar { get; init; }
-
-    /// <summary>Multas terceiro→reclamante que descontam do crédito.</summary>
-    public decimal MultasTerceiroReclamanteDescontar { get; init; }
-
     public decimal CustasDoReclamante { get; init; }
 }
 
@@ -143,7 +138,7 @@ public static class CalculoTrabalhista
                 acessorios.MultaDoFgts,
                 acessorios.DepositadoOuSacadoDeduzido),
             MultasReclamanteReclamado = principal.TotaisDeMultas.ReclamanteReclamado,
-            MultasReclamadoReclamanteDescontar = descontosDiretos.MultasReclamadoReclamanteDescontar,
+            MultasReclamadoReclamanteDescontar = principal.TotaisDeMultas.ReclamadoReclamanteDescontar,
         };
 
         // 4) Descontos do reclamante.
@@ -152,7 +147,7 @@ public static class CalculoTrabalhista
             ContribuicaoSocialSegurado = acessorios.InssSeguradoReclamante,
             PrevidenciaPrivada = acessorios.PrevidenciaPrivada,
             PensaoAlimenticia = acessorios.PensaoAlimenticia,
-            MultasTerceiroReclamanteDescontar = descontosDiretos.MultasTerceiroReclamanteDescontar,
+            MultasTerceiroReclamanteDescontar = principal.TotaisDeMultas.TerceiroReclamanteDescontar,
             HonorariosReclamanteDescontar = principal.TotaisDeHonorarios.DevidoPeloReclamante,
             IrpfDoReclamante = acessorios.IrpfDoReclamante,
             CustasDoReclamante = descontosDiretos.CustasDoReclamante,

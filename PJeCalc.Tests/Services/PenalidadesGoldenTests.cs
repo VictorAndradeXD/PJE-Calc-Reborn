@@ -87,10 +87,10 @@ public sealed class PenalidadesGoldenTests
         var mD = ApuracaoDeMulta.Calcular(new ParametrosDaMulta { TipoValor = TipoValorEnum.Informado, ValorInformado = 333.33m, TaxaDeJuros = 8.33m }, new BasesDaMulta());
         var totMultas = TotalizadorDeMulta.Calcular(
         [
-            (CredorDevedorMultaEnum.ReclamanteReclamado, mA.ValorTotal),
-            (CredorDevedorMultaEnum.ReclamanteReclamado, mB.ValorTotal),
-            (CredorDevedorMultaEnum.ReclamadoReclamante, mC.ValorTotal),
-            (CredorDevedorMultaEnum.TerceiroReclamado, mD.ValorTotal),
+            (CredorDevedorMultaEnum.ReclamanteReclamado, TipoCobrancaReclamanteEnum.DescontarCredito, mA.ValorTotal),
+            (CredorDevedorMultaEnum.ReclamanteReclamado, TipoCobrancaReclamanteEnum.DescontarCredito, mB.ValorTotal),
+            (CredorDevedorMultaEnum.ReclamadoReclamante, TipoCobrancaReclamanteEnum.DescontarCredito, mC.ValorTotal),
+            (CredorDevedorMultaEnum.TerceiroReclamado, TipoCobrancaReclamanteEnum.DescontarCredito, mD.ValorTotal),
         ]);
         Add("MT_TOTALIZADOR", "reclamanteReclamado", totMultas.ReclamanteReclamado);
         Add("MT_TOTALIZADOR", "reclamadoReclamante", totMultas.ReclamadoReclamante);
